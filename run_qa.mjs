@@ -250,7 +250,7 @@ async function createClickUpTask(tc, curlCmd = null) {
   }
 }
 
-async function updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, failedAssertions, assertionResults) {
+async function updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, failedAssertions, assertionResults, responseBody) {
   if (!taskId) return;
   try {
     // Update task status only
@@ -259,29 +259,42 @@ async function updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, fail
     });
 
     // Post test result as a comment on the task activity
-    const statusLabel = passed ? '✅ PASSED' : '❌ FAILED';
-    const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+    const statusIcon = passed ? '✅' : '❌';
+    const statusLabel = passed ? 'PASSED' : 'FAILED';
+    const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+
+    // Extract HTTP status code from actualResult
+    const httpStatusMatch = actualResult.match(/HTTP (\d+)/);
+    const httpStatus = httpStatusMatch ? httpStatusMatch[1] : actualResult;
+
     const commentLines = [
-      `**Result:** ${statusLabel}`,
-      `**HTTP Status:** ${actualResult}`,
-      `**Timestamp:** ${timestamp}`,
+      `## ${statusIcon} ${tc.id} ${statusLabel}`,
+      `**HTTP Status:** ${httpStatus}`,
     ];
 
-    // Include assertion details
+    // Assertion details
     if (assertionResults?.length) {
-      commentLines.push('', '**Assertion Details:**');
+      commentLines.push('', '**Assertions:**');
       for (const ar of assertionResults) {
         const icon = ar.passed ? '✅' : '❌';
-        commentLines.push(`${icon} \`${ar.path}\` — ${ar.description}`);
-        if (ar.actual !== undefined) {
-          commentLines.push(`    Expected: \`${ar.expected}\`  Actual: \`${ar.actual}\``);
-        }
+        commentLines.push(`- ${icon} \`${ar.path}\` → expected: \`${ar.expected}\` → actual: \`${ar.actual}\``);
       }
     }
 
     if (!passed && failedAssertions) {
       commentLines.push('', `**Failure Details:**`, failedAssertions);
     }
+
+    // Full API response body (truncated to 3000 chars)
+    if (responseBody != null) {
+      const responseJson = JSON.stringify(responseBody, null, 2);
+      const truncated = responseJson.length > 3000
+        ? responseJson.slice(0, 3000) + '\n... (truncated)'
+        : responseJson;
+      commentLines.push('', '**API Response:**', '```json', truncated, '```');
+    }
+
+    commentLines.push('', `Ran at ${timestamp}`);
 
     await clickup.post(`/task/${taskId}/comment`, {
       comment_text: commentLines.join('\n'),
@@ -345,7 +358,7 @@ async function runTestCase(tc) {
     status = res.status;
     body   = res.data;
   } catch (err) {
-    return { passed: false, actualResult: `Request error: ${err.message}`, curlCmd, failedAssertions: null };
+    return { passed: false, actualResult: `Request error: ${err.message}`, curlCmd, failedAssertions: null, responseBody: null };
   }
 
   const expectedStatus = tc.expected_status ?? 200;
@@ -366,6 +379,7 @@ async function runTestCase(tc) {
       curlCmd,
       failedAssertions: `Expected status ${expectedStatus} but received ${status}`,
       assertionResults,
+      responseBody: body,
     };
   }
 
@@ -387,6 +401,7 @@ async function runTestCase(tc) {
         curlCmd,
         failedAssertions: `Path \`${assertion.path}\` not found in response`,
         assertionResults,
+        responseBody: body,
       };
     }
     if (assertion.pattern) {
@@ -409,6 +424,7 @@ async function runTestCase(tc) {
           curlCmd,
           failedAssertions: `Assertion: \`${assertion.description}\`\nPath: \`${assertion.path}\`\nActual: ${JSON.stringify(value)}\nExpected pattern: \`${assertion.pattern}\``,
           assertionResults,
+          responseBody: body,
         };
       }
     } else {
@@ -422,7 +438,7 @@ async function runTestCase(tc) {
     }
   }
 
-  return { passed: true, actualResult: `HTTP ${status} — all assertions passed`, curlCmd, failedAssertions: null, assertionResults };
+  return { passed: true, actualResult: `HTTP ${status} — all assertions passed`, curlCmd, failedAssertions: null, assertionResults, responseBody: body };
 }
 
 // ── Step 4b: Run batch test cases ────────────────────────────────────────────
@@ -763,8 +779,8 @@ async function main() {
 
       const { id: taskId, url: taskUrl } = await createClickUpTask(tc, preCurlCmd);
       const runner = tc.type === 'batch' ? runBatchTestCase : runTestCase;
-      const { passed, actualResult, curlCmd, failedAssertions, assertionResults } = await runner(tc);
-      await updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, failedAssertions, assertionResults);
+      const { passed, actualResult, curlCmd, failedAssertions, assertionResults, responseBody } = await runner(tc);
+      await updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, failedAssertions, assertionResults, responseBody);
 
       console.log(`  ${passed ? '✅' : '❌'} ${tc.id}: ${actualResult}`);
       results.push({ ...tc, passed, actualResult, taskId, taskUrl });
