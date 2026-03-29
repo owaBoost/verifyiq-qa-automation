@@ -21,6 +21,40 @@ cp .env.example .env
 
 Open `QA_PROMPT_TEMPLATE.md`, fill in the PR details, and paste it into Claude Code.
 
+## Available Environments
+
+| Environment | URL | Docs |
+|---|---|---|
+| PR Preview | `https://pr-{N}---ai-boostform-api-preview-z6thvhgnxa-uc.a.run.app` | From dev's Slack message |
+| Dev (no preview) | https://parser-dev.boostkh.com | https://parser-dev.boostkh.com/docs?key=Boost@123 |
+| AI Gateway Dev | https://parser-dev.boostkh.com | https://parser-dev.boostkh.com/official-docs?key=Boost@123 |
+
+## Quick Start
+
+### Mode 1 — Full Run (PR + preview URL + ClickUp tasks)
+
+```
+Run the full QA pipeline for PR #284:
+PR Number: 284 from boost-capital/ai-parser-studio
+Preview URL: https://pr-284---ai-boostform-api-preview-z6thvhgnxa-uc.a.run.app
+ClickUp Tasks: 86b8pud4e, 86b8pucz7
+```
+
+### Mode 2 — Draft Only (ClickUp task, no preview yet)
+
+```
+Generate QA test cases for ClickUp task 86b8pud4e.
+No preview URL yet — save test cases to test-cases.json only, do not run.
+```
+
+### Mode 3 — Run Only (preview URL + existing test-cases.json)
+
+```
+Run existing test-cases.json against:
+Preview URL: https://pr-284---ai-boostform-api-preview-z6thvhgnxa-uc.a.run.app
+Post results to ClickUp folder 90147709410.
+```
+
 ## Environment Variables
 
 All in `.env` (see `.env.example`):

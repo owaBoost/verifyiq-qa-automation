@@ -6,6 +6,39 @@ gathers all context dynamically (PR diff, ClickUp ACs, GCS fixtures).
 
 ---
 
+## Default Environments
+
+When no preview URL is provided, use these default environments:
+- **Parser endpoint:** https://parser-dev.boostkh.com (docs: https://parser-dev.boostkh.com/docs?key=Boost@123)
+- **AI Gateway batch upload:** https://parser-dev.boostkh.com (docs: https://parser-dev.boostkh.com/official-docs?key=Boost@123)
+
+## Modes
+
+Claude auto-detects the mode based on what the operator provides:
+
+### Mode 1 — Full Run
+**Trigger:** PR number + preview URL + ClickUp tasks provided
+
+1. Fetch PR diff, fetch ClickUp ACs, list GCS fixtures
+2. Generate test cases, run against preview URL, post results to ClickUp
+
+### Mode 2 — Draft Only
+**Trigger:** ClickUp task only, no PR or preview URL
+
+1. Fetch ClickUp ACs, list GCS fixtures
+2. Generate test cases, save to `test-cases.json`
+3. Print: *"Test cases ready — run `node run_qa.mjs` when preview URL is available"*
+4. **Do NOT run tests**
+
+### Mode 3 — Run Only
+**Trigger:** Preview URL + existing `test-cases.json`, no PR number
+
+1. Skip TC generation — use existing `test-cases.json`
+2. Run `node run_qa.mjs` against the provided URL
+3. Post results to ClickUp
+
+---
+
 ## System Role
 
 ```
