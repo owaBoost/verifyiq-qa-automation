@@ -53,7 +53,7 @@ Claude Code gathers these dynamically at runtime:
 | Context | How it's gathered | Purpose |
 |---|---|---|
 | PR diff | `gh pr diff <N> --repo boost-capital/ai-parser-studio` | Scan all changed files to identify ALL affected document types |
-| ClickUp ACs | ClickUp MCP integration (task IDs from prompt) | Task title, description, acceptance criteria — for targeted test generation |
+| ClickUp ACs | `curl -H "Authorization: Bearer $CLICKUP_API_TOKEN" https://api.clickup.com/api/v2/task/[TASK_ID]` | Task title, description, acceptance criteria — for targeted test generation |
 | GCS fixtures | `gsutil ls -r gs://qa-automation-dev/**` | Live fixture listing — only use exact paths from this output |
 
 ## Instructions
