@@ -422,7 +422,7 @@ async function runTestCase(tc) {
 
 // ── Step 4b: Run batch test cases ────────────────────────────────────────────
 
-const DECRYPT_URL = 'https://us-central1-boost-capital-dev.cloudfunctions.net/verifyiq-gateway/utils/decrypt';
+const DECRYPT_URL = process.env.DECRYPT_URL || 'https://us-central1-boost-capital-staging.cloudfunctions.net/verifyiq-gateway/utils/decrypt';
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -510,12 +510,19 @@ function validateApplicationCallback(decrypted) {
 async function runBatchTestCase(tc) {
   console.log(`  Running ${tc.id} (batch) — POST /ai-gateway/batch-upload`);
 
-  if (!WEBHOOK_TOKEN_ID || !WEBHOOK_IDENTITY_TOKEN || !IAP_TOKEN) {
+  const missingBatchVars = [];
+  if (!WEBHOOK_TOKEN_ID) missingBatchVars.push('WEBHOOK_TOKEN_ID');
+  if (!WEBHOOK_IDENTITY_TOKEN) missingBatchVars.push('WEBHOOK_IDENTITY_TOKEN');
+  if (!IAP_TOKEN) missingBatchVars.push('IAP_TOKEN');
+  if (missingBatchVars.length) {
+    const note = `⚠️ SKIPPED — batch TC requires ${missingBatchVars.join(', ')}`;
+    console.log(`  ${note}`);
     return {
       passed: false,
-      actualResult: 'Missing required env: WEBHOOK_TOKEN_ID, WEBHOOK_IDENTITY_TOKEN, or IAP_TOKEN',
+      actualResult: note,
       curlCmd: '(batch — env vars missing)',
-      failedAssertions: 'Batch test requires WEBHOOK_TOKEN_ID, WEBHOOK_IDENTITY_TOKEN, and IAP_TOKEN secrets',
+      failedAssertions: null,
+      skipped: true,
     };
   }
 
@@ -681,10 +688,13 @@ async function main() {
   const pr = await getPr();
   await createClickUpList(pr);
 
-  // Create a fresh webhook token for batch tests
+  // Create a fresh webhook token for batch tests (only if env vars are available)
   const hasBatchTests = testCases.some(tc => tc.type === 'batch');
-  if (hasBatchTests) {
+  const batchEnvReady = WEBHOOK_IDENTITY_TOKEN && WEBHOOK_SITE_BASE_URL;
+  if (hasBatchTests && batchEnvReady) {
     WEBHOOK_TOKEN_ID = await createWebhookToken();
+  } else if (hasBatchTests) {
+    console.warn('  ⚠ Batch TCs found but WEBHOOK_IDENTITY_TOKEN / WEBHOOK_SITE_BASE_URL not set — batch TCs will be skipped');
   }
 
   const results = [];
