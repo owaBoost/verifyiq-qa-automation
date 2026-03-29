@@ -157,8 +157,9 @@ async function getPr() {
 
 // ── Step 3: ClickUp task creation & update ────────────────────────────────────
 
-function buildDescription(tc, curlCmd = null) {
+function buildDescription(tc) {
   const sections = [
+    `**${tc.id} — ${tc.title}**`,
     `**Preconditions**\n${tc.preconditions}`,
     `**Steps**\n${tc.steps}`,
     `**Expected Result**\n${tc.expected_result}`,
@@ -171,9 +172,6 @@ function buildDescription(tc, curlCmd = null) {
     sections.push(`**Fixture:** ${tc.payload.file}`);
   } else if (tc.payload?.items?.[0]?.file) {
     sections.push(`**Fixture:** ${tc.payload.items[0].file}`);
-  }
-  if (curlCmd) {
-    sections.push(`**Curl Command:**\n\`\`\`\n${curlCmd}\n\`\`\``);
   }
   return sections.join('\n\n');
 }
@@ -233,12 +231,12 @@ async function createClickUpList(pr) {
   }
 }
 
-async function createClickUpTask(tc, curlCmd = null) {
+async function createClickUpTask(tc) {
   if (!clickupListId) return { id: null, url: null };
   try {
     const { data } = await clickup.post(`/list/${clickupListId}/task`, {
       name: `${tc.id} - ${tc.title}`,
-      description: buildDescription(tc, curlCmd),
+      description: buildDescription(tc),
       tags: [tc.type, 'qa-auto'],
       status: 'to do',
     });
@@ -250,17 +248,35 @@ async function createClickUpTask(tc, curlCmd = null) {
   }
 }
 
+function isFixtureNotFound(actualResult, responseBody) {
+  const text = `${actualResult} ${JSON.stringify(responseBody ?? '')}`.toLowerCase();
+  return text.includes('no such object') || text.includes('fixture') ||
+    (text.includes('404') && text.includes('storage.googleapis.com'));
+}
+
 async function updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, failedAssertions, assertionResults, responseBody) {
   if (!taskId) return;
   try {
-    // Update task status only
-    await clickup.put(`/task/${taskId}`, {
-      status: passed ? 'passed' : 'fail',
-    });
+    // Detect fixture-not-found: tag as needs-fixture and keep status as "to do"
+    const fixtureNotFound = !passed && isFixtureNotFound(actualResult, responseBody);
+
+    if (fixtureNotFound) {
+      await clickup.put(`/task/${taskId}`, {
+        status: 'to do',
+      });
+      // Add needs-fixture tag
+      try {
+        await clickup.post(`/task/${taskId}/tag/needs-fixture`);
+      } catch { /* tag may already exist */ }
+    } else {
+      await clickup.put(`/task/${taskId}`, {
+        status: passed ? 'passed' : 'fail',
+      });
+    }
 
     // Post test result as a comment on the task activity
-    const statusIcon = passed ? '✅' : '❌';
-    const statusLabel = passed ? 'PASSED' : 'FAILED';
+    const statusIcon = passed ? '✅' : fixtureNotFound ? '⚠️' : '❌';
+    const statusLabel = passed ? 'PASSED' : fixtureNotFound ? 'SKIPPED' : 'FAILED';
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 
     // Extract HTTP status code from actualResult
@@ -272,6 +288,10 @@ async function updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, fail
       `**HTTP Status:** ${httpStatus}`,
     ];
 
+    if (fixtureNotFound) {
+      commentLines.push('', '⚠️ Fixture not found in GCS bucket — upload required before this TC can run.');
+    }
+
     // Assertion details
     if (assertionResults?.length) {
       commentLines.push('', '**Assertions:**');
@@ -281,8 +301,13 @@ async function updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, fail
       }
     }
 
-    if (!passed && failedAssertions) {
+    if (!passed && !fixtureNotFound && failedAssertions) {
       commentLines.push('', `**Failure Details:**`, failedAssertions);
+    }
+
+    // Curl command used
+    if (curlCmd) {
+      commentLines.push('', '**Curl Command:**', '```', curlCmd, '```');
     }
 
     // Full API response body (truncated to 3000 chars)
@@ -298,6 +323,7 @@ async function updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, fail
 
     await clickup.post(`/task/${taskId}/comment`, {
       comment_text: commentLines.join('\n'),
+      notify_all: false,
     });
   } catch (err) {
     console.warn(`  ⚠ ClickUp update failed for ${taskId}: ${err.message}`);
@@ -765,19 +791,7 @@ async function main() {
         continue;
       }
 
-      // Build curl command early so it can be included in the ClickUp task description
-      const authType = needsIapAuth(tc.endpoint) ? 'IAP' : 'API_KEY';
-      const maskedKey = VERIFYIQ_KEY ? `${VERIFYIQ_KEY.slice(0, 3)}***` : '(unset)';
-      const preCurlParts = [
-        `curl -X ${tc.method} '${PREVIEW_URL}${tc.endpoint}'`,
-        `-H 'Authorization: Bearer <${authType}_TOKEN>'`,
-        `-H 'X-Tenant-Token: ${maskedKey}'`,
-        `-H 'Content-Type: application/json'`,
-      ];
-      if (tc.payload) preCurlParts.push(`-d '${JSON.stringify(tc.payload)}'`);
-      const preCurlCmd = preCurlParts.join(' \\\n    ');
-
-      const { id: taskId, url: taskUrl } = await createClickUpTask(tc, preCurlCmd);
+      const { id: taskId, url: taskUrl } = await createClickUpTask(tc);
       const runner = tc.type === 'batch' ? runBatchTestCase : runTestCase;
       const { passed, actualResult, curlCmd, failedAssertions, assertionResults, responseBody } = await runner(tc);
       await updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, failedAssertions, assertionResults, responseBody);
