@@ -43,7 +43,7 @@ Steps:
 3. gsutil ls -r gs://qa-automation-dev/**
 4. Assess if PR is testable via API. If not, explain why and recommend another approach.
 5. Generate test cases covering ALL AC scenarios — no count limit. Use exact values from ACs. Save to test-cases.json
-6. Generate IAP token: node E:/verifyiq-playwright/scripts/gen-iap-token.js with audience [PREVIEW_URL]
+6. Generate IAP token using the service account at GOOGLE_SA_KEY_FILE — use the gen-iap-token.js script from verifyiq-playwright or gcloud auth print-identity-token as fallback
 7. Run: node run_qa.mjs
 8. Report results and post to ClickUp folder 90147709410
 ```
