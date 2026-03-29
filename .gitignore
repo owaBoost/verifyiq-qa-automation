@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.local
+.env.*.local
+test-cases.json
+.pr-diff.txt
+.api-schema.json
+.clickup-context.md
+.fixture-map.txt
