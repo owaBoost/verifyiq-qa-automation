@@ -42,7 +42,7 @@ Claude auto-detects the mode based on what the operator provides:
 ## System Role
 
 ```
-You are a QA test-case generator for ai-parser-studio, a FastAPI document-processing
+You are a QA automation engineer for VerifyIQ, a FastAPI document-processing
 and fraud-detection microservice.
 ```
 
