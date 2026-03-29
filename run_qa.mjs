@@ -101,6 +101,11 @@ const clickup = axios.create({
 let _iapToken = null;
 function getIapToken() {
   if (_iapToken) return _iapToken;
+  if (IAP_TOKEN) {
+    _iapToken = IAP_TOKEN;
+    console.log(`  ✓ IAP token from env (${_iapToken.length} chars)`);
+    return _iapToken;
+  }
   console.log('→ Generating IAP token via gcloud...');
   _iapToken = execSync('gcloud auth print-identity-token', { encoding: 'utf8' }).trim();
   if (!_iapToken) throw new Error('gcloud auth print-identity-token returned empty');
