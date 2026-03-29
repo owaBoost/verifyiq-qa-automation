@@ -27,15 +27,12 @@ if [ $# -lt 2 ]; then
   echo "  PREVIEW_URL   — Cloud Run preview URL"
   echo "  CLICKUP_TASKS — Comma-separated ClickUp task IDs (optional)"
   echo ""
-  echo "Required .env vars:"
+  echo "Required .env vars (see .env.example):"
   echo "  GH_TOKEN              — GitHub PAT with repo + PR comment permissions"
   echo "  VERIFYIQ_API_KEY      — API key for the preview service"
   echo "  CLICKUP_API_TOKEN     — ClickUp API token (optional, for task creation)"
-  echo ""
-  echo "Optional .env vars (for batch /ai-gateway tests):"
-  echo "  WEBHOOK_IDENTITY_TOKEN — webhook.site identity token"
-  echo "  WEBHOOK_SITE_BASE_URL  — webhook.site API base URL"
-  echo "  IAP_TOKEN              — GCP Identity-Aware Proxy token"
+  echo "  GOOGLE_SA_KEY_FILE    — Path to GCP service account JSON key"
+  echo "  CLICKUP_FOLDER_ID     — ClickUp folder ID for QA result lists"
   exit 1
 fi
 
@@ -70,7 +67,7 @@ fi
 
 export PR_NUMBER="$PR_NUMBER"
 export VERIFYIQ_SERVICE_URL="$PREVIEW_URL"
-export PR_REPO="${PR_REPO:-owaBoost/ai-parser-studio}"
+export PR_REPO="${PR_REPO:-boost-capital/ai-parser-studio}"
 
 # ── Validate required vars ──────────────────────────────────────────────────
 
@@ -97,10 +94,10 @@ TC_FILE="$QA_DIR/test-cases.json"
 if [ ! -f "$TC_FILE" ]; then
   echo "✗ No test-cases.json found at $TC_FILE"
   echo ""
-  echo "  Generate test cases first using one of:"
-  echo "    1. The QA workflow (open a PR against main)"
-  echo "    2. Claude Code with the prompt from QA_PROMPT_TEMPLATE.md"
-  echo "    3. Manually create test-cases.json in repo root"
+  echo "  Generate test cases first using Claude Code:"
+  echo "    1. Open Claude Code in the repo directory"
+  echo "    2. Paste the QA prompt (see README.md for example)"
+  echo "    3. Claude Code will generate test-cases.json automatically"
   exit 1
 fi
 

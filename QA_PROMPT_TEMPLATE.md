@@ -1,7 +1,8 @@
 # QA Pipeline Prompt Template
 
 Reusable prompt template for the AI-generated QA test-case pipeline.
-Used by `qa-on-pr.yml` (Claude Code Action) and available for local runs via `qa-run.sh`.
+Used by Claude Code CLI — the operator pastes a QA prompt and Claude Code
+gathers all context dynamically (PR diff, ClickUp ACs, GCS fixtures).
 
 ---
 
@@ -12,24 +13,24 @@ You are a QA test-case generator for ai-parser-studio, a FastAPI document-proces
 and fraud-detection microservice.
 ```
 
-## Input Files
+## Input Context
 
-| File | Source | Purpose |
+Claude Code gathers these dynamically at runtime:
+
+| Context | How it's gathered | Purpose |
 |---|---|---|
-| `.pr-diff.txt` | `git diff origin/main...HEAD` | Full PR diff — scan all changed files to identify ALL affected document types |
-| `.api-schema.json` | `{PREVIEW_URL}/openapi.json` | OpenAPI spec — exact endpoint paths, field names, required/optional params |
-| `.clickup-context.md` | ClickUp API (optional) | Task title, description, comments — for targeted test generation |
-| `.fixture-map.txt` | `gsutil ls -r gs://qa-automation-dev/**` | Live GCS fixture listing — only use exact paths from this file |
+| PR diff | `gh pr diff <N> --repo boost-capital/ai-parser-studio` | Scan all changed files to identify ALL affected document types |
+| ClickUp ACs | ClickUp MCP integration (task IDs from prompt) | Task title, description, acceptance criteria — for targeted test generation |
+| GCS fixtures | `gsutil ls -r gs://qa-automation-dev/**` | Live fixture listing — only use exact paths from this output |
 
 ## Instructions
 
-1. Read the FULL `.pr-diff.txt` — list every document type touched before generating any TCs.
+1. Read the FULL PR diff — list every document type touched before generating any TCs.
 2. Generate at least 1 TC per affected document type.
-3. Read `.api-schema.json` for exact endpoint paths, field names, and payload structure.
-4. If `.clickup-context.md` exists, use it for additional task context.
-5. Read `.fixture-map.txt` and pick the most relevant fixture(s) for the changes.
-6. Always use exact `gs://` paths from `.fixture-map.txt` — never invent file paths.
-7. Generate 4–8 targeted positive and negative API test cases.
+3. If ClickUp task ACs are available, use them for targeted test scope.
+4. Use the GCS fixture listing and pick the most relevant fixture(s) for the changes.
+5. Always use exact `gs://` paths from the fixture listing — never invent file paths.
+6. Generate targeted positive and negative API test cases — no fixed count limit.
 
 ## Known API Endpoints
 
