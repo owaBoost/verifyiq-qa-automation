@@ -12,12 +12,14 @@ cp .env.example .env
 # Fill in .env with your credentials
 ```
 
-## Usage
+## How It Works
 
-1. Open Claude Code in this repo directory
-2. Open `QA_PROMPT_TEMPLATE.md`, fill in the PR details, and paste it into Claude Code
+1. A dev posts a PR number + preview URL in Slack
+2. You open Claude Code in this folder and paste the QA prompt
+3. Claude fetches the PR diff, ClickUp ACs, and GCS fixtures automatically
+4. Claude generates test cases, runs them against the preview env, and posts results to ClickUp
 
-Claude Code handles everything from there: fetching the diff, reading ClickUp ACs, listing GCS fixtures, generating test cases, producing an IAP token, running the suite, and posting results.
+Open `QA_PROMPT_TEMPLATE.md`, fill in the PR details, and paste it into Claude Code.
 
 ## Environment Variables
 
