@@ -152,14 +152,25 @@ async function getPr() {
 
 // ── Step 3: ClickUp task creation & update ────────────────────────────────────
 
-function buildDescription(tc, actualResult = '(pending)', status = '(pending)') {
-  return [
+function buildDescription(tc, curlCmd = null) {
+  const sections = [
     `**Preconditions**\n${tc.preconditions}`,
     `**Steps**\n${tc.steps}`,
     `**Expected Result**\n${tc.expected_result}`,
-    `**Actual Result**\n${actualResult}`,
-    `**Status**\n${status}`,
-  ].join('\n\n');
+    `**Endpoint:** ${tc.method} ${tc.endpoint}`,
+  ];
+  if (tc.payload) {
+    sections.push(`**Payload:**\n\`\`\`json\n${JSON.stringify(tc.payload, null, 2)}\n\`\`\``);
+  }
+  if (tc.payload?.file) {
+    sections.push(`**Fixture:** ${tc.payload.file}`);
+  } else if (tc.payload?.items?.[0]?.file) {
+    sections.push(`**Fixture:** ${tc.payload.items[0].file}`);
+  }
+  if (curlCmd) {
+    sections.push(`**Curl Command:**\n\`\`\`\n${curlCmd}\n\`\`\``);
+  }
+  return sections.join('\n\n');
 }
 
 // Created at runtime in main() — a new list per PR inside CLICKUP_FOLDER_ID
@@ -217,12 +228,12 @@ async function createClickUpList(pr) {
   }
 }
 
-async function createClickUpTask(tc) {
+async function createClickUpTask(tc, curlCmd = null) {
   if (!clickupListId) return { id: null, url: null };
   try {
     const { data } = await clickup.post(`/list/${clickupListId}/task`, {
       name: `${tc.id} - ${tc.title}`,
-      description: buildDescription(tc),
+      description: buildDescription(tc, curlCmd),
       tags: [tc.type, 'qa-auto'],
       status: 'to do',
     });
@@ -234,7 +245,7 @@ async function createClickUpTask(tc) {
   }
 }
 
-async function updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, failedAssertions) {
+async function updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, failedAssertions, assertionResults) {
   if (!taskId) return;
   try {
     // Update task status only
@@ -243,18 +254,28 @@ async function updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, fail
     });
 
     // Post test result as a comment on the task activity
-    const statusLabel = passed ? 'PASS ✅' : 'FAIL ❌';
+    const statusLabel = passed ? '✅ PASSED' : '❌ FAILED';
+    const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
     const commentLines = [
       `**Result:** ${statusLabel}`,
       `**HTTP Status:** ${actualResult}`,
-      '',
-      `**Curl Command:**`,
-      `\`\`\``,
-      curlCmd,
-      `\`\`\``,
+      `**Timestamp:** ${timestamp}`,
     ];
+
+    // Include assertion details
+    if (assertionResults?.length) {
+      commentLines.push('', '**Assertion Details:**');
+      for (const ar of assertionResults) {
+        const icon = ar.passed ? '✅' : '❌';
+        commentLines.push(`${icon} \`${ar.path}\` — ${ar.description}`);
+        if (ar.actual !== undefined) {
+          commentLines.push(`    Expected: \`${ar.expected}\`  Actual: \`${ar.actual}\``);
+        }
+      }
+    }
+
     if (!passed && failedAssertions) {
-      commentLines.push('', `**Failed Assertion Details:**`, failedAssertions);
+      commentLines.push('', `**Failure Details:**`, failedAssertions);
     }
 
     await clickup.post(`/task/${taskId}/comment`, {
@@ -323,13 +344,23 @@ async function runTestCase(tc) {
   }
 
   const expectedStatus = tc.expected_status ?? 200;
+  const assertionResults = [];
+
   if (status !== expectedStatus) {
     const snippet = JSON.stringify(body).slice(0, 300);
+    assertionResults.push({
+      path: 'HTTP status',
+      description: `Expected HTTP ${expectedStatus}`,
+      expected: String(expectedStatus),
+      actual: String(status),
+      passed: false,
+    });
     return {
       passed: false,
       actualResult: `Expected HTTP ${expectedStatus}, got ${status}. Body: ${snippet}`,
       curlCmd,
       failedAssertions: `Expected status ${expectedStatus} but received ${status}`,
+      assertionResults,
     };
   }
 
@@ -338,25 +369,55 @@ async function runTestCase(tc) {
     try {
       value = resolvePath(body, assertion.path);
     } catch {
-      return { passed: false, actualResult: `Field not found: ${assertion.path}`, curlCmd, failedAssertions: `Path \`${assertion.path}\` not found in response` };
+      assertionResults.push({
+        path: assertion.path,
+        description: assertion.description,
+        expected: assertion.pattern ?? '(exists)',
+        actual: '(not found)',
+        passed: false,
+      });
+      return {
+        passed: false,
+        actualResult: `Field not found: ${assertion.path}`,
+        curlCmd,
+        failedAssertions: `Path \`${assertion.path}\` not found in response`,
+        assertionResults,
+      };
     }
     if (assertion.pattern) {
       // Strip (?i) inline flag (not supported in JS) and use 'i' flag instead
       const hasInlineIgnoreCase = assertion.pattern.includes('(?i)');
       const cleanPattern = assertion.pattern.replace(/\(\?i\)/g, '');
       const flags = hasInlineIgnoreCase ? 'i' : '';
-      if (!new RegExp(cleanPattern, flags).test(String(value))) {
+      const matched = new RegExp(cleanPattern, flags).test(String(value));
+      assertionResults.push({
+        path: assertion.path,
+        description: assertion.description,
+        expected: assertion.pattern,
+        actual: String(value),
+        passed: matched,
+      });
+      if (!matched) {
         return {
           passed: false,
           actualResult: `\`${assertion.path}\` = ${JSON.stringify(value)} did not match \`${assertion.pattern}\``,
           curlCmd,
           failedAssertions: `Assertion: \`${assertion.description}\`\nPath: \`${assertion.path}\`\nActual: ${JSON.stringify(value)}\nExpected pattern: \`${assertion.pattern}\``,
+          assertionResults,
         };
       }
+    } else {
+      assertionResults.push({
+        path: assertion.path,
+        description: assertion.description,
+        expected: '(exists)',
+        actual: String(value),
+        passed: true,
+      });
     }
   }
 
-  return { passed: true, actualResult: `HTTP ${status} — all assertions passed`, curlCmd, failedAssertions: null };
+  return { passed: true, actualResult: `HTTP ${status} — all assertions passed`, curlCmd, failedAssertions: null, assertionResults };
 }
 
 // ── Step 4b: Run batch test cases ────────────────────────────────────────────
@@ -640,7 +701,7 @@ async function main() {
           try {
             const { data } = await clickup.post(`/list/${clickupListId}/task`, {
               name: `${tc.id} - ${tc.title}`,
-              description: buildDescription(tc, '⚠️ SKIPPED — fixture not available', 'SKIPPED'),
+              description: buildDescription(tc),
               tags: [tc.type, 'qa-auto', 'needs-fixture'],
               status: 'to do',
             });
@@ -673,10 +734,22 @@ async function main() {
         continue;
       }
 
-      const { id: taskId, url: taskUrl } = await createClickUpTask(tc);
+      // Build curl command early so it can be included in the ClickUp task description
+      const authType = needsIapAuth(tc.endpoint) ? 'IAP' : 'API_KEY';
+      const maskedKey = VERIFYIQ_KEY ? `${VERIFYIQ_KEY.slice(0, 3)}***` : '(unset)';
+      const preCurlParts = [
+        `curl -X ${tc.method} '${PREVIEW_URL}${tc.endpoint}'`,
+        `-H 'Authorization: Bearer <${authType}_TOKEN>'`,
+        `-H 'X-Tenant-Token: ${maskedKey}'`,
+        `-H 'Content-Type: application/json'`,
+      ];
+      if (tc.payload) preCurlParts.push(`-d '${JSON.stringify(tc.payload)}'`);
+      const preCurlCmd = preCurlParts.join(' \\\n    ');
+
+      const { id: taskId, url: taskUrl } = await createClickUpTask(tc, preCurlCmd);
       const runner = tc.type === 'batch' ? runBatchTestCase : runTestCase;
-      const { passed, actualResult, curlCmd, failedAssertions } = await runner(tc);
-      await updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, failedAssertions);
+      const { passed, actualResult, curlCmd, failedAssertions, assertionResults } = await runner(tc);
+      await updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, failedAssertions, assertionResults);
 
       console.log(`  ${passed ? '✅' : '❌'} ${tc.id}: ${actualResult}`);
       results.push({ ...tc, passed, actualResult, taskId, taskUrl });
