@@ -10,6 +10,7 @@
  */
 
 import axios from 'axios';
+import jwt from 'jsonwebtoken';
 import { readFileSync } from 'fs';
 import { execSync } from 'child_process';
 
@@ -23,33 +24,57 @@ const CLICKUP_FOLDER_ID = '90147709410';
 const VERIFYIQ_KEY    = process.env.VERIFYIQ_API_KEY;
 const PREVIEW_URL     = (process.env.VERIFYIQ_SERVICE_URL || '').trim().replace(/\/$/, '');
 let   WEBHOOK_TOKEN_ID       = process.env.WEBHOOK_TOKEN_ID; // overwritten at runtime
-const WEBHOOK_IDENTITY_TOKEN = process.env.WEBHOOK_IDENTITY_TOKEN;
 const IAP_TOKEN              = process.env.IAP_TOKEN;
-const WEBHOOK_SITE_BASE_URL  = (process.env.WEBHOOK_SITE_BASE_URL || '').trim().replace(/\/$/, '');
+const WEBHOOK_SERVER_URL     = (process.env.WEBHOOK_SERVER_URL || '').trim().replace(/\/$/, '');
+const GOOGLE_SA_KEY_FILE     = process.env.GOOGLE_SA_KEY_FILE;
+
+// ── Webhook server IAP auth ──────────────────────────────────────────────────
+
+let _webhookIapToken = null;
+
+function getWebhookIapToken() {
+  if (_webhookIapToken) return _webhookIapToken;
+  if (!GOOGLE_SA_KEY_FILE) throw new Error('GOOGLE_SA_KEY_FILE is required for webhook server auth');
+  const sa = JSON.parse(readFileSync(GOOGLE_SA_KEY_FILE, 'utf8'));
+  const now = Math.floor(Date.now() / 1000);
+  _webhookIapToken = jwt.sign(
+    {
+      iss: sa.client_email,
+      sub: sa.client_email,
+      aud: WEBHOOK_SERVER_URL,
+      iat: now,
+      exp: now + 3600,
+    },
+    sa.private_key,
+    { algorithm: 'RS256', keyid: sa.private_key_id },
+  );
+  console.log(`  ✓ Webhook IAP token generated (${_webhookIapToken.length} chars)`);
+  return _webhookIapToken;
+}
 
 // ── Webhook token lifecycle ──────────────────────────────────────────────────
 
 async function createWebhookToken() {
-  console.log('→ Creating fresh webhook.site token...');
-  const res = await axios.post(`${WEBHOOK_SITE_BASE_URL}/token`, null, {
-    headers: { Authorization: `Bearer ${WEBHOOK_IDENTITY_TOKEN}` },
+  console.log('→ Creating fresh webhook token...');
+  const res = await axios.post(`${WEBHOOK_SERVER_URL}/token`, null, {
+    headers: { Authorization: `Bearer ${getWebhookIapToken()}` },
     validateStatus: () => true,
   });
   if (res.status !== 201 && res.status !== 200) {
-    throw new Error(`webhook.site token creation failed: HTTP ${res.status} — ${JSON.stringify(res.data).slice(0, 300)}`);
+    throw new Error(`Webhook token creation failed: HTTP ${res.status} — ${JSON.stringify(res.data).slice(0, 300)}`);
   }
   const uuid = res.data?.uuid;
-  if (!uuid) throw new Error('webhook.site returned no uuid');
+  if (!uuid) throw new Error('Webhook server returned no uuid');
   console.log(`  ✓ Webhook token created: ${uuid}`);
   return uuid;
 }
 
 async function deleteWebhookToken(uuid) {
   if (!uuid) return;
-  console.log(`→ Deleting webhook.site token ${uuid}...`);
+  console.log(`→ Deleting webhook token ${uuid}...`);
   try {
-    await axios.delete(`${WEBHOOK_SITE_BASE_URL}/token/${uuid}`, {
-      headers: { Authorization: `Bearer ${WEBHOOK_IDENTITY_TOKEN}` },
+    await axios.delete(`${WEBHOOK_SERVER_URL}/token/${uuid}`, {
+      headers: { Authorization: `Bearer ${getWebhookIapToken()}` },
       validateStatus: () => true,
     });
     console.log('  ✓ Webhook token deleted');
@@ -475,8 +500,8 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function getWebhookBaseline() {
   const res = await axios.get(
-    `${WEBHOOK_SITE_BASE_URL}/token/${WEBHOOK_TOKEN_ID}/requests?per_page=50`,
-    { headers: { Authorization: `Bearer ${WEBHOOK_IDENTITY_TOKEN}` }, validateStatus: () => true }
+    `${WEBHOOK_SERVER_URL}/token/${WEBHOOK_TOKEN_ID}/requests?per_page=50`,
+    { headers: { Authorization: `Bearer ${getWebhookIapToken()}` }, validateStatus: () => true }
   );
   return res.data?.data?.length ?? 0;
 }
@@ -486,8 +511,8 @@ async function pollWebhookCallbacks(baselineCount, expectedCount, applicationId,
   while (Date.now() - start < timeoutMs) {
     await sleep(3_000);
     const res = await axios.get(
-      `${WEBHOOK_SITE_BASE_URL}/token/${WEBHOOK_TOKEN_ID}/requests?per_page=50`,
-      { headers: { Authorization: `Bearer ${WEBHOOK_IDENTITY_TOKEN}` }, validateStatus: () => true }
+      `${WEBHOOK_SERVER_URL}/token/${WEBHOOK_TOKEN_ID}/requests?per_page=50`,
+      { headers: { Authorization: `Bearer ${getWebhookIapToken()}` }, validateStatus: () => true }
     );
     const all = res.data?.data ?? [];
     const newRequests = all.slice(0, all.length - baselineCount);
@@ -559,7 +584,7 @@ async function runBatchTestCase(tc) {
 
   const missingBatchVars = [];
   if (!WEBHOOK_TOKEN_ID) missingBatchVars.push('WEBHOOK_TOKEN_ID');
-  if (!WEBHOOK_IDENTITY_TOKEN) missingBatchVars.push('WEBHOOK_IDENTITY_TOKEN');
+  if (!GOOGLE_SA_KEY_FILE) missingBatchVars.push('GOOGLE_SA_KEY_FILE');
   if (!IAP_TOKEN) missingBatchVars.push('IAP_TOKEN');
   if (missingBatchVars.length) {
     const note = `⚠️ SKIPPED — batch TC requires ${missingBatchVars.join(', ')}`;
@@ -578,12 +603,12 @@ async function runBatchTestCase(tc) {
   if (!payload.callbacks) {
     payload.callbacks = {
       documentResult: {
-        url: `${WEBHOOK_SITE_BASE_URL}/${WEBHOOK_TOKEN_ID}`,
+        url: `${WEBHOOK_SERVER_URL}/${WEBHOOK_TOKEN_ID}`,
         method: 'POST',
         headers: {},
       },
       applicationResult: {
-        url: `${WEBHOOK_SITE_BASE_URL}/${WEBHOOK_TOKEN_ID}`,
+        url: `${WEBHOOK_SERVER_URL}/${WEBHOOK_TOKEN_ID}`,
         method: 'POST',
         headers: {},
       },
@@ -737,11 +762,11 @@ async function main() {
 
   // Create a fresh webhook token for batch tests (only if env vars are available)
   const hasBatchTests = testCases.some(tc => tc.type === 'batch');
-  const batchEnvReady = WEBHOOK_IDENTITY_TOKEN && WEBHOOK_SITE_BASE_URL;
+  const batchEnvReady = GOOGLE_SA_KEY_FILE && WEBHOOK_SERVER_URL;
   if (hasBatchTests && batchEnvReady) {
     WEBHOOK_TOKEN_ID = await createWebhookToken();
   } else if (hasBatchTests) {
-    console.warn('  ⚠ Batch TCs found but WEBHOOK_IDENTITY_TOKEN / WEBHOOK_SITE_BASE_URL not set — batch TCs will be skipped');
+    console.warn('  ⚠ Batch TCs found but GOOGLE_SA_KEY_FILE / WEBHOOK_SERVER_URL not set — batch TCs will be skipped');
   }
 
   const results = [];

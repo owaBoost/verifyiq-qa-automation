@@ -8,6 +8,7 @@
     "qa": "node run_qa.mjs"
   },
   "dependencies": {
-    "axios": "^1.7.0"
+    "axios": "^1.7.0",
+    "jsonwebtoken": "^9.0.0"
   }
 }
