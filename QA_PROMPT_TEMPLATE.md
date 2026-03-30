@@ -201,6 +201,16 @@ Assess before generating test cases:
   - Bad: `calculatedFields.0.pageNumber`
 - For check-cache: do NOT assert on `documentHash` (may be null)
 - Never generate assertions with empty `path` strings
+- For PRs involving circuit breakers: generate **health endpoint TCs only**
+  (`GET /ai-gateway/health/gateway-circuit-breakers`, `GET /ai-gateway/health/detailed`).
+  Do NOT generate parse/batch/upload TCs — circuit breaker changes don't affect parsing logic.
+
+> **Circuit breaker testing note:** Actually tripping a circuit breaker requires
+> network-level failure simulation (e.g. upstream service down, forced timeouts)
+> which cannot be reproduced through API calls alone. For circuit-trip scenarios,
+> recommend **manual testing with Bryan/Patrick** and tag the ClickUp task with
+> `needs-infra-testing`. Automated TCs should only verify the health endpoints
+> report breaker state correctly under normal conditions.
 
 ## Known fileType Values (case-sensitive)
 
