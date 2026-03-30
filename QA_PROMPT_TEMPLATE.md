@@ -56,14 +56,27 @@ Claude Code gathers these dynamically at runtime:
 | ClickUp ACs | `curl -H "Authorization: Bearer $CLICKUP_API_TOKEN" https://api.clickup.com/api/v2/task/[TASK_ID]` | Task title, description, acceptance criteria — for targeted test generation |
 | GCS fixtures | `gsutil ls -r gs://qa-automation-dev/**` | Live fixture listing — only use exact paths from this output |
 
+## OpenAPI Specs
+
+Fetch **both** specs from the preview URL at runtime:
+
+| Spec | URL | Auth | Contains |
+|---|---|---|---|
+| Internal | `[PREVIEW_URL]/openapi.json` | None | `/v1/documents/*` endpoints |
+| Official (tenant-facing) | `[PREVIEW_URL]/official-docs/openapi.json` | Header `X-Docs-Key: Boost@123` | `/ai-gateway/*` endpoints |
+
+> **Note:** `/ai-gateway/` endpoints live in the **official** spec, not the internal one.
+> If you need gateway endpoint schemas, you must fetch the official spec.
+
 ## Instructions
 
 1. Read the FULL PR diff — list every document type touched before generating any TCs.
-2. Generate at least 1 TC per affected document type.
-3. If ClickUp task ACs are available, use them for targeted test scope.
-4. Use the GCS fixture listing and pick the most relevant fixture(s) for the changes.
-5. Always use exact `gs://` paths from the fixture listing — never invent file paths.
-6. Generate targeted positive and negative API test cases — no fixed count limit.
+2. Fetch both OpenAPI specs (internal + official) to confirm endpoint schemas.
+3. Generate at least 1 TC per affected document type.
+4. If ClickUp task ACs are available, use them for targeted test scope.
+5. Use the GCS fixture listing and pick the most relevant fixture(s) for the changes.
+6. Always use exact `gs://` paths from the fixture listing — never invent file paths.
+7. Generate targeted positive and negative API test cases — no fixed count limit.
 
 ## Known API Endpoints
 
@@ -74,12 +87,16 @@ POST /v1/documents/batch        — SYNCHRONOUS batch parse
                                   Only assert HTTP 200, do NOT assert on response fields
 POST /v1/documents/check-cache  — check cached parsing results
 POST /v1/documents/crosscheck   — cross-validate documents
-POST /ai-gateway/batch-upload   — ASYNC gateway
+GET  /ai-gateway/health/gateway-circuit-breakers — circuit breaker status
+GET  /ai-gateway/health/detailed                — detailed health check
+POST /ai-gateway/batch-upload                   — ASYNC gateway
                                   Request MUST be wrapped:
                                   { payload: { publicUserId, submissionId, documents: [...] },
                                     callbacks: { documentResult: {...}, applicationResult: {...} } }
                                   Only assert HTTP 200 acknowledgement — do NOT assert on parse results
 ```
+
+> **Note:** All `/ai-gateway/` endpoints are documented in the **official** spec, not the internal one.
 
 **Do NOT** generate test cases for `/v1/documents/fraud-status` (requires real job ID).
 
