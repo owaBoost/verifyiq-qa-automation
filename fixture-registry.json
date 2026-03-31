@@ -1,0 +1,62 @@
+{
+  "version": "1.0",
+  "description": "Baseline fixture registry — check this first before creating new test files. Add more entries as needed.",
+  "fixtures": {
+    "PhilippineNationalID": {
+      "fileType": "PhilHealthID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilippineNationalID/National ID_00001- Identification System ID - VICTOR CASTAÑEDA CAPITULO.jpg",
+      "complete": true,
+      "notes": "Baseline PhilID — use for standard parse tests"
+    },
+    "BankStatement_BDO": {
+      "fileType": "BankStatement",
+      "baseline": "gs://qa-automation-dev/bank_financial/BankStatement/BDO_BankStatement.png",
+      "complete": true,
+      "notes": "BDO bank statement baseline"
+    },
+    "BankStatement_BPI": {
+      "fileType": "BankStatement",
+      "baseline": "gs://qa-automation-dev/bank_financial/BankStatement/BPI_eStatement_Dec 2025.pdf",
+      "complete": true,
+      "notes": "BPI bank statement baseline"
+    },
+    "GcashTransactionHistory": {
+      "fileType": "GcashTransactionHistory",
+      "baseline": "gs://qa-automation-dev/bank_financial/GCashTransactionHistory/GCashTransactionHistory_1_2025-11-11_enc-0909179_1762841447760.pdf",
+      "complete": true,
+      "notes": "GCash transaction history baseline"
+    },
+    "DriversLicense": {
+      "fileType": "DriversLicense",
+      "baseline": "gs://qa-automation-dev/identity_kyc/DriversLicense/DriversLicense.jpeg",
+      "complete": true,
+      "notes": "Driver's license baseline"
+    },
+    "Payslip": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-002.png",
+      "complete": false,
+      "notes": "Partial payslip — some fields may be missing. Use PS-013.pdf for complete payslip tests"
+    },
+    "ElectricUtilityBillingStatement": {
+      "fileType": "ElectricUtilityBillingStatement",
+      "baseline": "gs://qa-automation-dev/utility-bills/ElectricUtilityBillingStatement/55583_Mercalco_Bill_002.jpeg",
+      "complete": true,
+      "notes": "Meralco electricity bill baseline"
+    }
+  },
+  "fixture_creation_rules": {
+    "step_1": "Check fixture-registry.json first — use existing baseline if it satisfies the scenario",
+    "step_2": "Check gs://qa-automation-dev/** and gs://verifyiq-internal-testing/QA/** for additional fixtures",
+    "step_3": "If no suitable fixture exists — create synthetic file using Python (Pillow, qrcode, reportlab)",
+    "step_4": "Upload new fixtures to gs://verifyiq-internal-testing/QA/[DocType]/[descriptive-name].[ext]",
+    "step_5": "Add new fixture to fixture-registry.json and commit",
+    "naming_convention": {
+      "complete": "[bank]-[doctype]-complete.[ext]",
+      "partial": "[bank]-[doctype]-partial.[ext]",
+      "tampered": "[doctype]-tampered-[what].[ext]",
+      "damaged": "[doctype]-damaged-[what].[ext]",
+      "synthetic": "synthetic-[doctype]-[scenario].[ext]"
+    }
+  }
+}

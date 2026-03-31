@@ -222,6 +222,8 @@ ACRICard, DriversLicense, HDMFID, NBIClearance, Passport, PhilHealthID
 
 **Note:** `GcashTransactionHistory` (lowercase 'c'), NOT `GCashTransactionHistory`.
 
+> **Always read `fixture-registry.json` first** — it contains the approved baseline fixtures per document type. Only check GCS directly if the registry doesn't have what you need.
+
 ## Fixture Completeness Profile
 
 **COMPLETE** (all fields present — expect `FOUND_WITH_VALUE`):
