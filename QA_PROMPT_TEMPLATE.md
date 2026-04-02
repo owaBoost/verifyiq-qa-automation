@@ -85,7 +85,7 @@ Fetch **both** specs from the preview URL at runtime:
 | Spec | URL | Auth | Contains |
 |---|---|---|---|
 | Internal | `[PREVIEW_URL]/openapi.json` | None | `/v1/documents/*` endpoints |
-| Official (tenant-facing) | `[PREVIEW_URL]/official-docs/openapi.json` | Header `X-Docs-Key: Boost@123` | `/ai-gateway/*` endpoints |
+| Official (tenant-facing) | `[PREVIEW_URL]/official-openapi.json` | Header `X-Config-Key: Boost@123` | `/ai-gateway/*` endpoints |
 
 > **Note:** `/ai-gateway/` endpoints live in the **official** spec, not the internal one.
 > If you need gateway endpoint schemas, you must fetch the official spec.
