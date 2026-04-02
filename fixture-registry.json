@@ -1,48 +1,684 @@
 {
-  "version": "1.0",
-  "description": "Baseline fixture registry — check this first before creating new test files. Add more entries as needed.",
+  "version": "2.0",
+  "description": "Complete fixture registry of all files in gs://qa-automation-dev. fileType is derived from the GCS folder name.",
   "fixtures": {
-    "PhilippineNationalID": {
-      "fileType": "PhilHealthID",
-      "baseline": "gs://qa-automation-dev/identity_kyc/PhilippineNationalID/National ID_00001- Identification System ID - VICTOR CASTAÑEDA CAPITULO.jpg",
-      "complete": true,
-      "notes": "Baseline PhilID — use for standard parse tests"
-    },
     "BankStatement_BDO": {
       "fileType": "BankStatement",
       "baseline": "gs://qa-automation-dev/bank_financial/BankStatement/BDO_BankStatement.png",
       "complete": true,
       "notes": "BDO bank statement baseline"
     },
+    "BankStatement_BPI_Fake": {
+      "fileType": "BankStatement",
+      "baseline": "gs://qa-automation-dev/bank_financial/BankStatement/BPI_Fake_Future Dated-001.png",
+      "complete": true,
+      "notes": "BPI fake future-dated bank statement"
+    },
     "BankStatement_BPI": {
       "fileType": "BankStatement",
       "baseline": "gs://qa-automation-dev/bank_financial/BankStatement/BPI_eStatement_Dec 2025.pdf",
       "complete": true,
-      "notes": "BPI bank statement baseline"
+      "notes": "BPI eStatement Dec 2025"
     },
-    "GcashTransactionHistory": {
-      "fileType": "GcashTransactionHistory",
+    "BankStatement_GoTyme": {
+      "fileType": "BankStatement",
+      "baseline": "gs://qa-automation-dev/bank_financial/BankStatement/GoTyme_BankStatement_SavingsAccounts_20251103_200827.pdf",
+      "complete": true,
+      "notes": "GoTyme savings account statement"
+    },
+    "BankStatement_MayaSavings": {
+      "fileType": "BankStatement",
+      "baseline": "gs://qa-automation-dev/bank_financial/BankStatement/MayaSavings_SoA_133f474f6d1a4b22970dcce3e4c827a4_2025NOV.pdf",
+      "complete": true,
+      "notes": "Maya Savings statement of account Nov 2025"
+    },
+    "BankStatement_MayaWallet": {
+      "fileType": "BankStatement",
+      "baseline": "gs://qa-automation-dev/bank_financial/BankStatement/MayaWallet_SoA_156-58f1ecf4e781_01-Jul-2025_31-Jul-2025.pdf",
+      "complete": true,
+      "notes": "Maya Wallet statement of account Jul 2025"
+    },
+    "BankStatement_PNB": {
+      "fileType": "BankStatement",
+      "baseline": "gs://qa-automation-dev/bank_financial/BankStatement/PNB_Bank Statement_10011-4-1764210385856.jpeg",
+      "complete": true,
+      "notes": "PNB bank statement"
+    },
+    "BankStatement_UnionBank": {
+      "fileType": "BankStatement",
+      "baseline": "gs://qa-automation-dev/bank_financial/BankStatement/UnionBank-Transactions_2025-11-03_10-19-50.pdf",
+      "complete": true,
+      "notes": "UnionBank transactions export"
+    },
+    "CreditCardStatement_BDO": {
+      "fileType": "CreditCardStatement",
+      "baseline": "gs://qa-automation-dev/bank_financial/CreditCardStatement/BDO_CCStatement.pdf",
+      "complete": true,
+      "notes": "BDO credit card statement"
+    },
+    "CreditCardStatement_BDO_Platinum": {
+      "fileType": "CreditCardStatement",
+      "baseline": "gs://qa-automation-dev/bank_financial/CreditCardStatement/BDO_SOA_PLATINUM MASTERCARD_140792460-08192025.pdf",
+      "complete": true,
+      "notes": "BDO Platinum Mastercard SOA Aug 2025"
+    },
+    "GCashTransactionHistory_1": {
+      "fileType": "GCashTransactionHistory",
       "baseline": "gs://qa-automation-dev/bank_financial/GCashTransactionHistory/GCashTransactionHistory_1_2025-11-11_enc-0909179_1762841447760.pdf",
       "complete": true,
-      "notes": "GCash transaction history baseline"
+      "notes": "GCash transaction history baseline (encrypted)"
     },
-    "DriversLicense": {
+    "GCashTransactionHistory_2": {
+      "fileType": "GCashTransactionHistory",
+      "baseline": "gs://qa-automation-dev/bank_financial/GCashTransactionHistory/GCash_Statement_2_2026-01-02.pdf",
+      "complete": true,
+      "notes": "GCash statement Jan 2026"
+    },
+    "GCashTransactionHistory_3": {
+      "fileType": "GCashTransactionHistory",
+      "baseline": "gs://qa-automation-dev/bank_financial/GCashTransactionHistory/GcashTransactionHistory_2025-11-04_2026-01-03.pdf",
+      "complete": true,
+      "notes": "GCash transaction history Nov 2025 - Jan 2026"
+    },
+    "CertificateOfEmployment_1": {
+      "fileType": "CertificateOfEmployment",
+      "baseline": "gs://qa-automation-dev/employment/CertificateOfEmployment/CertificateOfEmployment.pdf",
+      "complete": true,
+      "notes": "Certificate of employment baseline"
+    },
+    "CertificateOfEmployment_2": {
+      "fileType": "CertificateOfEmployment",
+      "baseline": "gs://qa-automation-dev/employment/CertificateOfEmployment/CertificateOfEmployment_3_2025-12-15_COE.pdf",
+      "complete": true,
+      "notes": "Certificate of employment Dec 2025"
+    },
+    "Payslip_Alorica": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/Alorica_Payslip.pdf",
+      "complete": true,
+      "notes": "Alorica payslip"
+    },
+    "Payslip_PS002": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-002.png",
+      "complete": false,
+      "notes": "Partial payslip — some fields may be missing"
+    },
+    "Payslip_PS013": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-013.pdf",
+      "complete": true,
+      "notes": "Complete payslip baseline"
+    },
+    "Payslip_SAFC_001": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-SAFC-001.pdf",
+      "complete": true,
+      "notes": "SAFC payslip variant 1"
+    },
+    "Payslip_SAFC_002": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-SAFC-002.pdf",
+      "complete": true,
+      "notes": "SAFC payslip variant 2"
+    },
+    "Payslip_SAFC_003": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-SAFC-003.pdf",
+      "complete": true,
+      "notes": "SAFC payslip variant 3"
+    },
+    "Payslip_SAFC_004": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-SAFC-004.pdf",
+      "complete": true,
+      "notes": "SAFC payslip variant 4"
+    },
+    "Payslip_SAFC_005": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-SAFC-005.pdf",
+      "complete": true,
+      "notes": "SAFC payslip variant 5"
+    },
+    "Payslip_TC005_TwoEmployers": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/TC005_two_different_employer_payslips.pdf",
+      "complete": true,
+      "notes": "Two different employer payslips in one document"
+    },
+    "Payslip_Alorica_2Pages": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/employment_Payslip_Alorica_Payslip_2pages.pdf",
+      "complete": true,
+      "notes": "Alorica payslip 2 pages"
+    },
+    "Payslip_Full": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/payslip_FULL.png",
+      "complete": true,
+      "notes": "Full payslip image"
+    },
+    "Payslip_Synthetic_NullDeductions_v2": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/synthetic-payslip-null-deductions-TC301-06-v2.pdf",
+      "complete": true,
+      "notes": "Synthetic payslip with null deductions (v2) — TC301-06"
+    },
+    "Payslip_Synthetic_NullDeductions": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/synthetic-payslip-null-deductions-TC301-06.pdf",
+      "complete": true,
+      "notes": "Synthetic payslip with null deductions — TC301-06"
+    },
+    "Payslip_Synthetic_WithTaxOnly": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/synthetic-payslip-withtax-only-TC301-08.pdf",
+      "complete": true,
+      "notes": "Synthetic payslip with tax only — TC301-08"
+    },
+    "Payslip_Synthetic_ZeroDeductions": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/synthetic-payslip-zero-deductions.pdf",
+      "complete": true,
+      "notes": "Synthetic payslip with zero deductions"
+    },
+    "Payslip_Synthetic_ZeroGross": {
+      "fileType": "Payslip",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/synthetic-payslip-zero-gross-TC301-07.pdf",
+      "complete": true,
+      "notes": "Synthetic payslip with zero gross — TC301-07"
+    },
+    "ACRICard_1": {
+      "fileType": "ACRICard",
+      "baseline": "gs://qa-automation-dev/identity_kyc/ACRICard/ACR ID_59003_John Charles_ACR ID.jpg",
+      "complete": true,
+      "notes": "ACR I-Card — John Charles"
+    },
+    "ACRICard_2": {
+      "fileType": "ACRICard",
+      "baseline": "gs://qa-automation-dev/identity_kyc/ACRICard/ACR ID_59008_XINGE HUANG_ACR ID.jpg",
+      "complete": true,
+      "notes": "ACR I-Card — Xinge Huang"
+    },
+    "DriversLicense_1": {
+      "fileType": "DriversLicense",
+      "baseline": "gs://qa-automation-dev/identity_kyc/DriversLicense/Driver's License_ 56063_Driver_s License - VRENT BENEDICK LIM YU.jpg",
+      "complete": true,
+      "notes": "Driver's license — Vrent Benedick Lim Yu"
+    },
+    "DriversLicense_2": {
+      "fileType": "DriversLicense",
+      "baseline": "gs://qa-automation-dev/identity_kyc/DriversLicense/Driver's License_55075_Driver_s license_VERTUCIO, ADONIS FRIAS front .jpg",
+      "complete": true,
+      "notes": "Driver's license — Vertucio, Adonis Frias (front)"
+    },
+    "DriversLicense_Baseline": {
       "fileType": "DriversLicense",
       "baseline": "gs://qa-automation-dev/identity_kyc/DriversLicense/DriversLicense.jpeg",
       "complete": true,
       "notes": "Driver's license baseline"
     },
-    "Payslip": {
-      "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-002.png",
-      "complete": false,
-      "notes": "Partial payslip — some fields may be missing. Use PS-013.pdf for complete payslip tests"
+    "HDMFID_Back": {
+      "fileType": "HDMFID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/HDMFID/HDMF_Pag-ibig loyalty card ID_59004_494686839_1523607028613405_4881878725074993370_n_back.jpeg",
+      "complete": true,
+      "notes": "HDMF/Pag-IBIG loyalty card — back"
     },
-    "ElectricUtilityBillingStatement": {
+    "HDMFID_Front": {
+      "fileType": "HDMFID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/HDMFID/HDMF_Pag-ibig loyalty card ID_59004_494690196_1421782625903249_5483959367342265346_n_front.jpeg",
+      "complete": true,
+      "notes": "HDMF/Pag-IBIG loyalty card — front"
+    },
+    "NBIClearance_1": {
+      "fileType": "NBIClearance",
+      "baseline": "gs://qa-automation-dev/identity_kyc/NBIClearance/NBI_1.jpg",
+      "complete": true,
+      "notes": "NBI clearance sample 1"
+    },
+    "NBIClearance_2": {
+      "fileType": "NBIClearance",
+      "baseline": "gs://qa-automation-dev/identity_kyc/NBIClearance/NBI_3.png",
+      "complete": true,
+      "notes": "NBI clearance sample 2"
+    },
+    "PRCID_Front_V3": {
+      "fileType": "PRCID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PRCID/PRC ID_20201_Professional Regulation Commission_Front-V3.jpeg",
+      "complete": true,
+      "notes": "PRC ID front V3"
+    },
+    "PRCID_20201_Back": {
+      "fileType": "PRCID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PRCID/PRC ID_20201_Professional Regulation Commission_back.jpg",
+      "complete": true,
+      "notes": "PRC ID 20201 back"
+    },
+    "PRCID_20202_Back": {
+      "fileType": "PRCID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PRCID/PRC ID_20202_Professional Regulation Commission_Back.jpg",
+      "complete": true,
+      "notes": "PRC ID 20202 back"
+    },
+    "PRCID_20202_Front": {
+      "fileType": "PRCID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PRCID/PRC ID_20202_Professional Regulation Commission_front.jpg",
+      "complete": true,
+      "notes": "PRC ID 20202 front"
+    },
+    "PRCID_Baseline": {
+      "fileType": "PRCID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PRCID/PRCID.jpeg",
+      "complete": true,
+      "notes": "PRC ID baseline"
+    },
+    "Passport_Johneric": {
+      "fileType": "Passport",
+      "baseline": "gs://qa-automation-dev/identity_kyc/Passport/Johneric.jpg",
+      "complete": true,
+      "notes": "Passport — Johneric"
+    },
+    "Passport_1": {
+      "fileType": "Passport",
+      "baseline": "gs://qa-automation-dev/identity_kyc/Passport/PASSPORT_1.jpg",
+      "complete": true,
+      "notes": "Passport sample 1"
+    },
+    "Passport_9": {
+      "fileType": "Passport",
+      "baseline": "gs://qa-automation-dev/identity_kyc/Passport/PASSPORT_9.png",
+      "complete": true,
+      "notes": "Passport sample 9"
+    },
+    "Passport_Baseline": {
+      "fileType": "Passport",
+      "baseline": "gs://qa-automation-dev/identity_kyc/Passport/Passport.jpg",
+      "complete": true,
+      "notes": "Passport baseline"
+    },
+    "Passport_Mata": {
+      "fileType": "Passport",
+      "baseline": "gs://qa-automation-dev/identity_kyc/Passport/Passport_56073_Passport - MATA MICHELLE DE.jpg",
+      "complete": true,
+      "notes": "Passport — Mata Michelle De"
+    },
+    "PhilHealthID_Camua": {
+      "fileType": "PhilHealthID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilHealthID/PhilHealth ID_2024-11-23 02_27_05 Health ID - BENJILEN MANALAD CAMUA.jpg",
+      "complete": true,
+      "notes": "PhilHealth ID — Benjilen Manalad Camua"
+    },
+    "PhilHealthID_Aguirre": {
+      "fileType": "PhilHealthID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilHealthID/PhilHealth ID_2025-01-09 03_13_09 Health ID - ELSA NOVIO AGUIRRE.jpg",
+      "complete": true,
+      "notes": "PhilHealth ID — Elsa Novio Aguirre"
+    },
+    "PhilHealthID_Baseline": {
+      "fileType": "PhilHealthID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilHealthID/PhilhealthID.jpeg",
+      "complete": true,
+      "notes": "PhilHealth ID baseline"
+    },
+    "PhilippineNationalID_Backside": {
+      "fileType": "PhilippineNationalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilippineNationalID/00011 -Identification System ID - FIRST LAST-BACKSIDE.jpg",
+      "complete": true,
+      "notes": "Philippine National ID backside"
+    },
+    "PhilippineNationalID_Front": {
+      "fileType": "PhilippineNationalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilippineNationalID/2025-05-14 04_59_22 Identification System ID - FIRST LAST.jpg",
+      "complete": true,
+      "notes": "Philippine National ID front"
+    },
+    "PhilippineNationalID_55640": {
+      "fileType": "PhilippineNationalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilippineNationalID/55640_National ID-V2.png",
+      "complete": true,
+      "notes": "Philippine National ID V2"
+    },
+    "PhilippineNationalID_Capitulo": {
+      "fileType": "PhilippineNationalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilippineNationalID/National ID_00001- Identification System ID - VICTOR CASTAÑEDA CAPITULO.jpg",
+      "complete": true,
+      "notes": "Philippine National ID baseline — Victor Castaneda Capitulo"
+    },
+    "PhilippineNationalID_00002": {
+      "fileType": "PhilippineNationalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilippineNationalID/National ID_00002- Identification System ID - FIRST LAST (1)-frontside.jpg",
+      "complete": true,
+      "notes": "Philippine National ID frontside"
+    },
+    "PhilippineNationalID_Back1": {
+      "fileType": "PhilippineNationalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilippineNationalID/PHID back 1.jpeg",
+      "complete": true,
+      "notes": "Philippine National ID back"
+    },
+    "PhilippineNationalID_DamagedQR": {
+      "fileType": "PhilippineNationalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilippineNationalID/QA_PhilID_philid_damaged_qr.png",
+      "complete": true,
+      "notes": "Philippine National ID with damaged QR code"
+    },
+    "PhilippineNationalID_TamperedQR": {
+      "fileType": "PhilippineNationalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilippineNationalID/QA_PhilID_philid_tampered_qr.png",
+      "complete": true,
+      "notes": "Philippine National ID with tampered QR code"
+    },
+    "PhilippineNationalID_ValidQR": {
+      "fileType": "PhilippineNationalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilippineNationalID/QA_PhilID_philid_valid_qr.png",
+      "complete": true,
+      "notes": "Philippine National ID with valid QR code"
+    },
+    "PhilippineNationalID_FrontBackCombined": {
+      "fileType": "PhilippineNationalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PhilippineNationalID/philid_front_back_combined.pdf",
+      "complete": true,
+      "notes": "Philippine National ID front and back combined PDF"
+    },
+    "PostalID_Jimenez": {
+      "fileType": "PostalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PostalID/Postal ID_56053_2025-05-21 07_52_35 Postal ID - CHRISTHEL ALJAS JIMENEZ.jpg",
+      "complete": true,
+      "notes": "Postal ID — Christhel Aljas Jimenez"
+    },
+    "PostalID_56054": {
+      "fileType": "PostalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PostalID/Postal ID_56054_2025-05-21 07_52_35 Postal ID.jpg",
+      "complete": true,
+      "notes": "Postal ID sample"
+    },
+    "PostalID_Baseline": {
+      "fileType": "PostalID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/PostalID/PostalID.jpg",
+      "complete": true,
+      "notes": "Postal ID baseline"
+    },
+    "SSSID_Rosatase": {
+      "fileType": "SSSID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/SSSID/SSS ID_66001_Social Security system-RANDY MANDAWE ROSATASE.jpeg",
+      "complete": true,
+      "notes": "SSS ID — Randy Mandawe Rosatase"
+    },
+    "SSSID_Yasis": {
+      "fileType": "SSSID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/SSSID/SSS ID_66013_Social Security System-CAROLINA BATOON YASIS.jpg",
+      "complete": true,
+      "notes": "SSS ID — Carolina Batoon Yasis"
+    },
+    "SSSID_DelosReyes": {
+      "fileType": "SSSID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/SSSID/SSS ID_66015_Social Security System Card - CHARITA DELOS REYES.jpg",
+      "complete": true,
+      "notes": "SSS ID — Charita Delos Reyes"
+    },
+    "SSSID_Soles": {
+      "fileType": "SSSID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/SSSID/SSS ID_66016_Social Security System Card - GILBERT TOSTOGO SOLES.jpg",
+      "complete": true,
+      "notes": "SSS ID — Gilbert Tostogo Soles"
+    },
+    "TINID_FakeIDs": {
+      "fileType": "TINID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/TINID/TIN_QA_Fake IDs.png",
+      "complete": true,
+      "notes": "TIN ID — QA fake IDs"
+    },
+    "UMID_1": {
+      "fileType": "UMID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/UMID/UMID.jpg",
+      "complete": true,
+      "notes": "UMID baseline"
+    },
+    "UMID_2": {
+      "fileType": "UMID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/UMID/UMID_JRUA.png",
+      "complete": true,
+      "notes": "UMID — JRUA"
+    },
+    "VotersID_1": {
+      "fileType": "VotersID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/VotersID/Voter's ID_60005_Voter ID.jpg",
+      "complete": true,
+      "notes": "Voter's ID sample 1"
+    },
+    "VotersID_2": {
+      "fileType": "VotersID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/VotersID/Voter's ID_60006_Voter ID.jpg",
+      "complete": true,
+      "notes": "Voter's ID sample 2"
+    },
+    "VotersID_Baseline": {
+      "fileType": "VotersID",
+      "baseline": "gs://qa-automation-dev/identity_kyc/VotersID/VotersID.jpg",
+      "complete": true,
+      "notes": "Voter's ID baseline"
+    },
+    "AMLCBSPProvisionalCertificateOfRegistration_1": {
+      "fileType": "AMLCBSPProvisionalCertificateOfRegistration",
+      "baseline": "gs://qa-automation-dev/kyb/AMLCBSPProvisionalCertificateOfRegistration/AMLC-BSP Provisional Certificate of Registration (PCOR)_55524_Applicant12345_AMLC_PCOR.jpg",
+      "complete": true,
+      "notes": "AMLC-BSP PCOR sample 1"
+    },
+    "AMLCBSPProvisionalCertificateOfRegistration_2": {
+      "fileType": "AMLCBSPProvisionalCertificateOfRegistration",
+      "baseline": "gs://qa-automation-dev/kyb/AMLCBSPProvisionalCertificateOfRegistration/AMLC-BSP Provisional Certificate of Registration (PCOR)_55525_Applicant12345_AMLC_PCOR.jpg",
+      "complete": true,
+      "notes": "AMLC-BSP PCOR sample 2"
+    },
+    "AMLCBSPProvisionalCertificateOfRegistration_3": {
+      "fileType": "AMLCBSPProvisionalCertificateOfRegistration",
+      "baseline": "gs://qa-automation-dev/kyb/AMLCBSPProvisionalCertificateOfRegistration/AMLC-BSP Provisional Certificate of Registration (PCOR)_55526_Applicant12345_AMLC_PCOR (2).png",
+      "complete": true,
+      "notes": "AMLC-BSP PCOR sample 3"
+    },
+    "ArticlesOfIncorporation_1": {
+      "fileType": "ArticlesOfIncorporation",
+      "baseline": "gs://qa-automation-dev/kyb/ArticlesOfIncorporation/Articles of Incorporation-Partnership_56039_Articles of Incorporation_7_Page_02.png",
+      "complete": true,
+      "notes": "Articles of Incorporation page 2"
+    },
+    "ArticlesOfPartnership_1": {
+      "fileType": "ArticlesOfPartnership",
+      "baseline": "gs://qa-automation-dev/kyb/ArticlesOfPartnership/Articles of Incorporation-Partnership_55523_Applicant12345_SEC_AOP.jpg",
+      "complete": true,
+      "notes": "Articles of Partnership sample 1"
+    },
+    "ArticlesOfPartnership_2": {
+      "fileType": "ArticlesOfPartnership",
+      "baseline": "gs://qa-automation-dev/kyb/ArticlesOfPartnership/Articles of Incorporation-Partnership_55524_Applicant12345_SEC_AOP.png",
+      "complete": true,
+      "notes": "Articles of Partnership sample 2"
+    },
+    "BIRExemptionCertificate_BIMPC_1": {
+      "fileType": "BIRExemptionCertificate",
+      "baseline": "gs://qa-automation-dev/kyb/BIRExemptionCertificate/BIR Exemption Certificate_56046_Certificate of Tax Exemption_BIMPC.png",
+      "complete": true,
+      "notes": "BIR exemption certificate — BIMPC page 1"
+    },
+    "BIRExemptionCertificate_BIMPC_2": {
+      "fileType": "BIRExemptionCertificate",
+      "baseline": "gs://qa-automation-dev/kyb/BIRExemptionCertificate/BIR Exemption Certificate_56046_Certificate of Tax Exemption_BIMPC_Page_2.jpg",
+      "complete": true,
+      "notes": "BIR exemption certificate — BIMPC page 2"
+    },
+    "BIRExemptionCertificate_2": {
+      "fileType": "BIRExemptionCertificate",
+      "baseline": "gs://qa-automation-dev/kyb/BIRExemptionCertificate/BIR Exemption Certificate_56047_BIR-Certificate of Tax Exemption.png",
+      "complete": true,
+      "notes": "BIR exemption certificate sample 2"
+    },
+    "BIRForm2303_Baseline": {
+      "fileType": "BIRForm2303",
+      "baseline": "gs://qa-automation-dev/kyb/BIRForm2303/BIRForm2303.jpeg",
+      "complete": true,
+      "notes": "BIR Form 2303 baseline"
+    },
+    "BIRForm2303_1": {
+      "fileType": "BIRForm2303",
+      "baseline": "gs://qa-automation-dev/kyb/BIRForm2303/BIR_1.jpeg",
+      "complete": true,
+      "notes": "BIR Form 2303 sample 1"
+    },
+    "BIRForm2303_2": {
+      "fileType": "BIRForm2303",
+      "baseline": "gs://qa-automation-dev/kyb/BIRForm2303/BIR_2.jpeg",
+      "complete": true,
+      "notes": "BIR Form 2303 sample 2"
+    },
+    "BoardResolution_1": {
+      "fileType": "BoardResolution",
+      "baseline": "gs://qa-automation-dev/kyb/BoardResolution/Board Resolution_56033_Secretary_s Cert_2.png",
+      "complete": true,
+      "notes": "Board resolution / secretary's cert (image)"
+    },
+    "BoardResolution_2": {
+      "fileType": "BoardResolution",
+      "baseline": "gs://qa-automation-dev/kyb/BoardResolution/Board Resolution_56034_Secretary_s Cert_1pdf.pdf",
+      "complete": true,
+      "notes": "Board resolution / secretary's cert (PDF)"
+    },
+    "DTIRegistrationCertificate_Baseline": {
+      "fileType": "DTIRegistrationCertificate",
+      "baseline": "gs://qa-automation-dev/kyb/DTIRegistrationCertificate/DTIRegistrationCertificate.png",
+      "complete": true,
+      "notes": "DTI registration certificate baseline"
+    },
+    "DTIRegistrationCertificate_1": {
+      "fileType": "DTIRegistrationCertificate",
+      "baseline": "gs://qa-automation-dev/kyb/DTIRegistrationCertificate/DTI_1.png",
+      "complete": true,
+      "notes": "DTI registration certificate sample 1"
+    },
+    "DTIRegistrationCertificate_2": {
+      "fileType": "DTIRegistrationCertificate",
+      "baseline": "gs://qa-automation-dev/kyb/DTIRegistrationCertificate/DTI_2.jpeg",
+      "complete": true,
+      "notes": "DTI registration certificate sample 2"
+    },
+    "MayorsPermit_Baseline": {
+      "fileType": "MayorsPermit",
+      "baseline": "gs://qa-automation-dev/kyb/MayorsPermit/MayorsPermit.pdf",
+      "complete": true,
+      "notes": "Mayor's permit baseline"
+    },
+    "PhilippineBirthCertificate_Baseline": {
+      "fileType": "PhilippineBirthCertificate",
+      "baseline": "gs://qa-automation-dev/kyb/PhilippineBirthCertificate/BirthCertificate.pdf",
+      "complete": true,
+      "notes": "Philippine birth certificate baseline"
+    },
+    "SECCertificateOfIncorporation_1": {
+      "fileType": "SECCertificateOfIncorporation",
+      "baseline": "gs://qa-automation-dev/kyb/SECCertificateOfIncorporation/SEC Certificate of Incorporation_56038_SEC COI.png",
+      "complete": true,
+      "notes": "SEC Certificate of Incorporation sample 1"
+    },
+    "SECCertificateOfIncorporation_2": {
+      "fileType": "SECCertificateOfIncorporation",
+      "baseline": "gs://qa-automation-dev/kyb/SECCertificateOfIncorporation/SEC Certificate of Incorporation_56042_SEC COI.png",
+      "complete": true,
+      "notes": "SEC Certificate of Incorporation sample 2"
+    },
+    "GeneralInformationSheet_Page01": {
+      "fileType": "GeneralInformationSheet",
+      "baseline": "gs://qa-automation-dev/others/GeneralInformationSheet/General Information Sheet (GIS)_55920_GENERAL INFORMATION SHEETS 202220220803111844.Png _Page_01.png",
+      "complete": true,
+      "notes": "GIS page 1 of 11"
+    },
+    "GeneralInformationSheet_Page02": {
+      "fileType": "GeneralInformationSheet",
+      "baseline": "gs://qa-automation-dev/others/GeneralInformationSheet/General Information Sheet (GIS)_55920_GENERAL INFORMATION SHEETS 202220220803111844.Png _Page_02.png",
+      "complete": true,
+      "notes": "GIS page 2 of 11"
+    },
+    "GeneralInformationSheet_Page03": {
+      "fileType": "GeneralInformationSheet",
+      "baseline": "gs://qa-automation-dev/others/GeneralInformationSheet/General Information Sheet (GIS)_55920_GENERAL INFORMATION SHEETS 202220220803111844.Png _Page_03.png",
+      "complete": true,
+      "notes": "GIS page 3 of 11"
+    },
+    "GeneralInformationSheet_Page04": {
+      "fileType": "GeneralInformationSheet",
+      "baseline": "gs://qa-automation-dev/others/GeneralInformationSheet/General Information Sheet (GIS)_55920_GENERAL INFORMATION SHEETS 202220220803111844.Png _Page_04.png",
+      "complete": true,
+      "notes": "GIS page 4 of 11"
+    },
+    "GeneralInformationSheet_Page05": {
+      "fileType": "GeneralInformationSheet",
+      "baseline": "gs://qa-automation-dev/others/GeneralInformationSheet/General Information Sheet (GIS)_55920_GENERAL INFORMATION SHEETS 202220220803111844.Png _Page_05.png",
+      "complete": true,
+      "notes": "GIS page 5 of 11"
+    },
+    "GeneralInformationSheet_Page06": {
+      "fileType": "GeneralInformationSheet",
+      "baseline": "gs://qa-automation-dev/others/GeneralInformationSheet/General Information Sheet (GIS)_55920_GENERAL INFORMATION SHEETS 202220220803111844.Png _Page_06.png",
+      "complete": true,
+      "notes": "GIS page 6 of 11"
+    },
+    "GeneralInformationSheet_Page07": {
+      "fileType": "GeneralInformationSheet",
+      "baseline": "gs://qa-automation-dev/others/GeneralInformationSheet/General Information Sheet (GIS)_55920_GENERAL INFORMATION SHEETS 202220220803111844.Png _Page_07.png",
+      "complete": true,
+      "notes": "GIS page 7 of 11"
+    },
+    "GeneralInformationSheet_Page08": {
+      "fileType": "GeneralInformationSheet",
+      "baseline": "gs://qa-automation-dev/others/GeneralInformationSheet/General Information Sheet (GIS)_55920_GENERAL INFORMATION SHEETS 202220220803111844.Png _Page_08.png",
+      "complete": true,
+      "notes": "GIS page 8 of 11"
+    },
+    "GeneralInformationSheet_Page09": {
+      "fileType": "GeneralInformationSheet",
+      "baseline": "gs://qa-automation-dev/others/GeneralInformationSheet/General Information Sheet (GIS)_55920_GENERAL INFORMATION SHEETS 202220220803111844.Png _Page_09.png",
+      "complete": true,
+      "notes": "GIS page 9 of 11"
+    },
+    "GeneralInformationSheet_Page10": {
+      "fileType": "GeneralInformationSheet",
+      "baseline": "gs://qa-automation-dev/others/GeneralInformationSheet/General Information Sheet (GIS)_55920_GENERAL INFORMATION SHEETS 202220220803111844.Png _Page_10.png",
+      "complete": true,
+      "notes": "GIS page 10 of 11"
+    },
+    "GeneralInformationSheet_Page11": {
+      "fileType": "GeneralInformationSheet",
+      "baseline": "gs://qa-automation-dev/others/GeneralInformationSheet/General Information Sheet (GIS)_55920_GENERAL INFORMATION SHEETS 202220220803111844.Png _Page_11.png",
+      "complete": true,
+      "notes": "GIS page 11 of 11"
+    },
+    "ElectricUtilityBillingStatement_Meralco_1": {
       "fileType": "ElectricUtilityBillingStatement",
       "baseline": "gs://qa-automation-dev/utility-bills/ElectricUtilityBillingStatement/55583_Mercalco_Bill_002.jpeg",
       "complete": true,
+      "notes": "Meralco electricity bill sample"
+    },
+    "ElectricUtilityBillingStatement_Fraud": {
+      "fileType": "ElectricUtilityBillingStatement",
+      "baseline": "gs://qa-automation-dev/utility-bills/ElectricUtilityBillingStatement/Fraud_Meralco_Bill.png",
+      "complete": true,
+      "notes": "Fraudulent Meralco electricity bill"
+    },
+    "ElectricUtilityBillingStatement_Baseline": {
+      "fileType": "ElectricUtilityBillingStatement",
+      "baseline": "gs://qa-automation-dev/utility-bills/ElectricUtilityBillingStatement/Meralco_ElectricUtilityBillingStatement.jpg",
+      "complete": true,
       "notes": "Meralco electricity bill baseline"
+    },
+    "PLDTTelcoBill_Baseline": {
+      "fileType": "PLDTTelcoBill",
+      "baseline": "gs://qa-automation-dev/utility-bills/PLDTTelcoBill/PLDTTelcoBill.pdf",
+      "complete": true,
+      "notes": "PLDT telco bill baseline"
+    },
+    "WaterUtilityBillingStatement_Baseline": {
+      "fileType": "WaterUtilityBillingStatement",
+      "baseline": "gs://qa-automation-dev/utility-bills/WaterUtilityBillingStatement/Maynilad_WaterUtilityBillingStatement.jpg",
+      "complete": true,
+      "notes": "Maynilad water utility bill baseline"
     }
   },
   "fixture_creation_rules": {
