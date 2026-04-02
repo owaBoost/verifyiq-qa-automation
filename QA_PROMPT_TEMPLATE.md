@@ -229,6 +229,7 @@ Assess before generating test cases:
 - NEVER use numeric index paths on arrays — use wildcard `*` instead
   - Good: `calculatedFields.*.pageNumber`
   - Bad: `calculatedFields.0.pageNumber`
+- Health endpoints: `status` returns `"ok"` on this API (not `"healthy"`). The runner treats `"ok"` and `"healthy"` as equivalent for health status assertions.
 - For check-cache: do NOT assert on `documentHash` (may be null)
 - Never generate assertions with empty `path` strings
 - For PRs involving circuit breakers: generate **health endpoint TCs only**

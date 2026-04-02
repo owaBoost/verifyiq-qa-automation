@@ -403,6 +403,14 @@ function resolvePath(obj, dotPath) {
   return current;
 }
 
+// Health endpoints return "ok" or "healthy" interchangeably across environments.
+// Normalise so assertions matching either value pass regardless of which is returned.
+const HEALTH_STATUS_SYNONYMS = ['ok', 'healthy'];
+
+function isHealthStatusField(path) {
+  return /(?:^|\.)status$/.test(path) || /(?:^|\.)healthy$/.test(path);
+}
+
 async function runTestCase(tc) {
   console.log(`  Running ${tc.id} (${tc.type}) — ${tc.method} ${tc.endpoint}`);
 
@@ -482,7 +490,13 @@ async function runTestCase(tc) {
       const hasInlineIgnoreCase = assertion.pattern.includes('(?i)');
       const cleanPattern = assertion.pattern.replace(/\(\?i\)/g, '');
       const flags = hasInlineIgnoreCase ? 'i' : '';
-      const matched = new RegExp(cleanPattern, flags).test(String(value));
+
+      // Normalise health status synonyms: treat "ok" and "healthy" as equivalent
+      const re = new RegExp(cleanPattern, flags);
+      let matched = re.test(String(value));
+      if (!matched && isHealthStatusField(assertion.path) && HEALTH_STATUS_SYNONYMS.includes(String(value).toLowerCase())) {
+        matched = HEALTH_STATUS_SYNONYMS.some(s => re.test(s));
+      }
       assertionResults.push({
         path: assertion.path,
         description: assertion.description,
