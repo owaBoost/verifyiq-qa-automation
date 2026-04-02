@@ -537,16 +537,11 @@ async function pollWebhookCallbacks(baselineCount, expectedCount, applicationId,
       { headers: { Authorization: `Bearer ${getWebhookIapToken()}` }, validateStatus: () => true }
     );
     const all = res.data?.data ?? [];
+    // Callbacks are encrypted so we can't filter by applicationId in the ciphertext.
+    // Since we create a fresh webhook token per run, count new callbacks by offset.
     const newRequests = all.slice(0, all.length - baselineCount);
-    // Filter to only callbacks belonging to this applicationId
-    const matched = applicationId
-      ? newRequests.filter(cb => {
-          const content = cb.content ?? cb.body ?? '';
-          return typeof content === 'string' ? content.includes(applicationId) : JSON.stringify(content).includes(applicationId);
-        })
-      : newRequests;
-    if (matched.length >= expectedCount) return matched;
-    console.log(`    Polling… ${matched.length}/${expectedCount} callbacks received (${newRequests.length} total new)`);
+    if (newRequests.length >= expectedCount) return newRequests;
+    console.log(`    Polling… ${newRequests.length}/${expectedCount} callbacks received`);
   }
   throw new Error(`Timed out after ${timeoutMs / 1000}s waiting for ${expectedCount} callbacks`);
 }
