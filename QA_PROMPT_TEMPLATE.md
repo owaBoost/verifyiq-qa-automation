@@ -39,6 +39,28 @@ Claude auto-detects the mode based on what the operator provides:
 
 ---
 
+## Runner Setup
+
+`run_qa.mjs` auto-loads `.env` via `dotenv/config` — no manual `set -a && source .env` needed.
+
+| Variable | Required | Notes |
+|---|---|---|
+| `VERIFYIQ_SERVICE_URL` | Yes | Preview or dev URL (e.g. `https://pr-304---ai-boostform-api-preview-z6thvhgnxa-uc.a.run.app`) |
+| `VERIFYIQ_API_KEY` | Yes | Tenant API key (`sk_...`) |
+| `GH_TOKEN` | Yes | GitHub PAT for PR comments |
+| `PR_REPO` | Yes | `owner/repo` (e.g. `boost-capital/ai-parser-studio`) |
+| `PR_NUMBER` | Yes | PR number |
+| `GOOGLE_SA_KEY_FILE` | Yes | Path to service account JSON key — used to auto-generate IAP tokens at runtime (audience derived from `VERIFYIQ_SERVICE_URL`) |
+| `CLICKUP_API_TOKEN` | Optional | Enables ClickUp integration |
+| `CLICKUP_FOLDER_ID` | Optional | Defaults to `90147709410` |
+| `WEBHOOK_SERVER_URL` | Optional | Self-hosted Cloud Run webhook server for batch callback capture |
+
+> **IAP_TOKEN is no longer needed in `.env`** — the runner auto-generates IAP tokens from `GOOGLE_SA_KEY_FILE` with the correct audience for both preview and dev environments. Tokens are cached and auto-refresh before expiry.
+
+> **Callback auth:** For batch tests, the runner injects an IAP bearer token into the `callbacks.headers` so the Cloud Run webhook server can authenticate callback delivery.
+
+---
+
 ## System Role
 
 ```
@@ -139,8 +161,16 @@ POST /ai-gateway/batch-upload                   — ASYNC gateway
     }]
   },
   "callbacks": {
-    "documentResult": { "url": "https://webhook.site/<token>", "method": "POST", "headers": {} },
-    "applicationResult": { "url": "https://webhook.site/<token>", "method": "POST", "headers": {} }
+    "documentResult": {
+      "url": "https://verifyiq-webhook-server-<project>.us-central1.run.app/<token>",
+      "method": "POST",
+      "headers": { "Authorization": "Bearer <WEBHOOK_IAP_TOKEN>" }
+    },
+    "applicationResult": {
+      "url": "https://verifyiq-webhook-server-<project>.us-central1.run.app/<token>",
+      "method": "POST",
+      "headers": { "Authorization": "Bearer <WEBHOOK_IAP_TOKEN>" }
+    }
   }
 }
 ```
@@ -154,7 +184,7 @@ POST /ai-gateway/batch-upload                   — ASYNC gateway
     {
       "id": "TC-01",
       "title": "string — concise test name",
-      "type": "positive | negative",
+      "type": "positive | negative | batch",
       "preconditions": "string — environment or data setup required",
       "steps": "string — numbered steps (endpoint, method, payload)",
       "expected_result": "string — what the response should contain",
@@ -214,15 +244,31 @@ Assess before generating test cases:
 
 ## Known fileType Values (case-sensitive)
 
-```
-BankStatement, CreditCardStatement, GcashTransactionHistory,
-CertificateOfEmployment, Form1701, Form2316, Payslip, LandTitle,
-ACRICard, DriversLicense, HDMFID, NBIClearance, Passport, PhilHealthID
-```
+**Bank & Financial:**
+`BankStatement`, `CreditCardStatement`, `GCashTransactionHistory`
 
-**Note:** `GcashTransactionHistory` (lowercase 'c'), NOT `GCashTransactionHistory`.
+**Employment:**
+`CertificateOfEmployment`, `Form1701`, `Form2316`, `Payslip`
 
-> **Always read `fixture-registry.json` first** — it contains the approved baseline fixtures per document type. Only check GCS directly if the registry doesn't have what you need.
+**Identity / KYC:**
+`ACRICard`, `DriversLicense`, `HDMFID`, `NBIClearance`, `PRCID`, `Passport`,
+`PhilHealthID`, `PhilippineNationalID`, `PostalID`, `SSSID`, `TINID`, `UMID`, `VotersID`
+
+**KYB:**
+`AMLCBSPProvisionalCertificateOfRegistration`, `ArticlesOfIncorporation`,
+`ArticlesOfPartnership`, `BIRExemptionCertificate`, `BIRForm2303`,
+`BoardResolution`, `DTIRegistrationCertificate`, `MayorsPermit`,
+`PhilippineBirthCertificate`, `SECCertificateOfIncorporation`
+
+**Utility Bills:**
+`ElectricUtilityBillingStatement`, `PLDTTelcoBill`, `WaterUtilityBillingStatement`
+
+**Others:**
+`GeneralInformationSheet`, `LandTitle`
+
+**Note:** The API uses `GCashTransactionHistory` (capital C) in GCS folder names but some endpoints may accept `GcashTransactionHistory` (lowercase 'c'). Check the OpenAPI spec for the exact casing accepted by each endpoint.
+
+> **Always read `fixture-registry.json` first** — v2.0 contains 99 fixtures across 32 document types covering all files in `gs://qa-automation-dev`. Only check GCS directly if the registry doesn't have what you need.
 
 ## Fixture Completeness Profile
 
