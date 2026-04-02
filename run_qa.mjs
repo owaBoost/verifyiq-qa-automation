@@ -778,11 +778,81 @@ async function postResultsComment(summary, results) {
   console.log('→ Results comment posted.');
 }
 
+// ── Baseline health checks (always run before TCs) ──────────────────────────
+
+async function runBaselineHealthChecks() {
+  console.log('→ Running baseline health checks...\n');
+  const errors = [];
+
+  // 1. GET /health — status ok/healthy, revision exists, service exists
+  try {
+    const client = createPreviewClient('/health');
+    const res = await client.get('/health');
+    if (res.status !== 200) {
+      errors.push(`GET /health returned HTTP ${res.status}`);
+    } else {
+      const b = res.data;
+      const s = String(b.status ?? '').toLowerCase();
+      if (s !== 'ok' && s !== 'healthy') errors.push(`GET /health: status="${b.status}", expected "ok" or "healthy"`);
+      if (!b.revision) errors.push('GET /health: missing revision');
+      if (!b.service) errors.push('GET /health: missing service');
+      console.log(`  ✓ /health — status=${b.status}, revision=${b.revision}, service=${b.service}`);
+    }
+  } catch (err) {
+    errors.push(`GET /health failed: ${err.message}`);
+  }
+
+  // 2. GET /health/detailed — services exist, redis/pg healthy, force_failure off
+  try {
+    const client = createPreviewClient('/health/detailed');
+    const res = await client.get('/health/detailed');
+    if (res.status !== 200) {
+      errors.push(`GET /health/detailed returned HTTP ${res.status}`);
+    } else {
+      const b = res.data;
+      for (const svc of ['vlm', 'sightengine', 'openai', 'textract']) {
+        if (!b.services?.[svc]) errors.push(`GET /health/detailed: missing services.${svc}`);
+      }
+      if (b.cache?.redis?.healthy !== true) errors.push('GET /health/detailed: redis.healthy is not true');
+      if (b.cache?.postgresql?.healthy !== true) errors.push('GET /health/detailed: postgresql.healthy is not true');
+      if (b.cache?.force_failure_enabled !== false) errors.push(`GET /health/detailed: force_failure_enabled=${b.cache?.force_failure_enabled}, expected false`);
+      if (!errors.length) console.log('  ✓ /health/detailed — all services present, redis/pg healthy, force_failure off');
+    }
+  } catch (err) {
+    errors.push(`GET /health/detailed failed: ${err.message}`);
+  }
+
+  // 3. GET /ai-gateway/health/gateway-circuit-breakers — boost_callback.state=closed
+  try {
+    const client = createPreviewClient('/ai-gateway/health/gateway-circuit-breakers');
+    const res = await client.get('/ai-gateway/health/gateway-circuit-breakers');
+    if (res.status !== 200) {
+      errors.push(`GET /ai-gateway/health/gateway-circuit-breakers returned HTTP ${res.status}`);
+    } else {
+      const state = res.data?.boost_callback?.state;
+      if (state !== 'closed') errors.push(`GET /ai-gateway/health/gateway-circuit-breakers: boost_callback.state="${state}", expected "closed"`);
+      else console.log(`  ✓ /ai-gateway/health/gateway-circuit-breakers — boost_callback.state=closed`);
+    }
+  } catch (err) {
+    errors.push(`GET /ai-gateway/health/gateway-circuit-breakers failed: ${err.message}`);
+  }
+
+  if (errors.length) {
+    console.error(`\n❌ Baseline health checks failed (${errors.length} error(s)):`);
+    for (const e of errors) console.error(`  • ${e}`);
+    console.error('\nEnvironment is unhealthy — aborting test run.\n');
+    process.exit(1);
+  }
+  console.log('  ✓ All baseline health checks passed\n');
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
   const { summary, test_cases: testCases } = loadTestCases();
   console.log(`→ ${testCases.length} test cases loaded\n`);
+
+  await runBaselineHealthChecks();
 
   const pr = await getPr();
   await createClickUpList(pr);
