@@ -622,16 +622,17 @@ async function runBatchTestCase(tc) {
   // Inject webhook callbacks into payload if not already set
   const payload = JSON.parse(JSON.stringify(tc.payload));
   if (!payload.callbacks) {
+    const webhookIapHeader = { Authorization: `Bearer ${getWebhookIapToken()}` };
     payload.callbacks = {
       documentResult: {
         url: `${WEBHOOK_SERVER_URL}/${WEBHOOK_TOKEN_ID}`,
         method: 'POST',
-        headers: {},
+        headers: webhookIapHeader,
       },
       applicationResult: {
         url: `${WEBHOOK_SERVER_URL}/${WEBHOOK_TOKEN_ID}`,
         method: 'POST',
-        headers: {},
+        headers: webhookIapHeader,
       },
     };
   }
