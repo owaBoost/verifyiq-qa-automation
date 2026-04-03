@@ -1,6 +1,29 @@
 {
-  "version": "2.0",
-  "description": "Complete fixture registry of all files in gs://qa-automation-dev. fileType is derived from the GCS folder name.",
+  "version": "2.1",
+  "description": "Complete fixture registry of all files in gs://qa-automation-dev. fileType is derived from the GCS folder name. gatewayDocumentType maps parse fileType to /ai-gateway/batch-upload documentType.",
+  "gatewayDocumentTypeMap": {
+    "BankStatement": "BANK_STATEMENT",
+    "Payslip": "PAYSLIP",
+    "ElectricUtilityBillingStatement": "ELECTRICITY_BILL",
+    "PLDTTelcoBill": "TelcoBill",
+    "WaterUtilityBillingStatement": "WaterBill",
+    "PhilippineNationalID": "PHILIPPINE_NATIONAL_ID",
+    "DriversLicense": "DRIVERS_LICENSE",
+    "Passport": "PASSPORT",
+    "UMID": "UMID",
+    "SSSID": "SSS_ID",
+    "TINID": "TIN_ID",
+    "PhilHealthID": "PHILHEALTH_ID",
+    "HDMFID": "HDMF_ID",
+    "PostalID": "POSTAL_ID",
+    "PRCID": "PRC_ID",
+    "VotersID": "VOTERS_ID",
+    "NBIClearance": "NBI_CLEARANCE",
+    "ACRICard": "ACRI_CARD",
+    "SSSPersonalRecord": "SSS_PERSONAL_RECORD",
+    "BIRForm2303": "BIRForm2303",
+    "CertificateOfEmployment": "COE"
+  },
   "fixtures": {
     "BankStatement_BDO": {
       "fileType": "BankStatement",

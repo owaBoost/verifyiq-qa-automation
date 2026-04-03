@@ -115,6 +115,9 @@ POST /ai-gateway/batch-upload                   — ASYNC gateway
                                   Request MUST be wrapped:
                                   { payload: { publicUserId, submissionId, documents: [...] },
                                     callbacks: { documentResult: {...}, applicationResult: {...} } }
+                                  Document fields: documentId, fileId, documentClassification,
+                                    documentType, filename, preSignedUrl (NOT s3Url)
+                                  documentClassification: "PRIMARY" (default) or "SUPPORTING"
                                   Only assert HTTP 200 acknowledgement — do NOT assert on parse results
 ```
 
@@ -154,10 +157,10 @@ POST /ai-gateway/batch-upload                   — ASYNC gateway
     "documents": [{
       "documentId": "doc-001",
       "fileId": "file-001",
-      "documentClassification": "financial",
+      "documentClassification": "PRIMARY",
       "documentType": "BankStatement",
       "filename": "UnionBank-Transactions_2025-11-03_10-19-50.pdf",
-      "s3Url": "gs://qa-automation-dev/bank_financial/BankStatement/UnionBank-Transactions_2025-11-03_10-19-50.pdf"
+      "preSignedUrl": "gs://qa-automation-dev/bank_financial/BankStatement/UnionBank-Transactions_2025-11-03_10-19-50.pdf"
     }]
   },
   "callbacks": {
@@ -242,6 +245,36 @@ Assess before generating test cases:
 > recommend **manual testing with Bryan/Patrick** and tag the ClickUp task with
 > `needs-infra-testing`. Automated TCs should only verify the health endpoints
 > report breaker state correctly under normal conditions.
+
+## documentType Mapping (batch-upload vs parse)
+
+The `/ai-gateway/batch-upload` endpoint uses **SCREAMING_SNAKE_CASE** `documentType` values, while `/v1/documents/parse` uses **PascalCase** `fileType` values. When generating batch-upload test cases, always use the gateway column.
+
+| Gateway `documentType` | Parse `fileType` | Category |
+|---|---|---|
+| `BANK_STATEMENT` | `BankStatement` | Bank & Financial |
+| `PAYSLIP` | `Payslip` | Employment |
+| `ELECTRICITY_BILL` | `ElectricUtilityBillingStatement` | Utility Bills |
+| `TelcoBill` | `PLDTTelcoBill` | Utility Bills |
+| `WaterBill` | `WaterUtilityBillingStatement` | Utility Bills |
+| `PHILIPPINE_NATIONAL_ID` | `PhilippineNationalID` | Identity / KYC |
+| `DRIVERS_LICENSE` | `DriversLicense` | Identity / KYC |
+| `PASSPORT` | `Passport` | Identity / KYC |
+| `UMID` | `UMID` | Identity / KYC |
+| `SSS_ID` | `SSSID` | Identity / KYC |
+| `TIN_ID` | `TINID` | Identity / KYC |
+| `PHILHEALTH_ID` | `PhilHealthID` | Identity / KYC |
+| `HDMF_ID` | `HDMFID` | Identity / KYC |
+| `POSTAL_ID` | `PostalID` | Identity / KYC |
+| `PRC_ID` | `PRCID` | Identity / KYC |
+| `VOTERS_ID` | `VotersID` | Identity / KYC |
+| `NBI_CLEARANCE` | `NBIClearance` | Identity / KYC |
+| `ACRI_CARD` | `ACRICard` | Identity / KYC |
+| `SSS_PERSONAL_RECORD` | `SSSPersonalRecord` | Identity / KYC |
+| `BIRForm2303` | `BIRForm2303` | KYB |
+| `COE` | `CertificateOfEmployment` | Employment |
+
+> **Important:** Using the wrong casing (e.g. `ElectricUtilityBillingStatement` instead of `ELECTRICITY_BILL` in a batch-upload payload) will cause the gateway to fail with `status=FAILED` and return null `ocrResult` in callbacks.
 
 ## Known fileType Values (case-sensitive)
 
