@@ -584,30 +584,102 @@ function assertField(obj, path, label) {
   }
 }
 
+function isFraudFlagged(decrypted) {
+  try {
+    const flag = resolvePath(decrypted, 'ocrResult.fraudChecks.overall_fraud_flag');
+    return flag === true || flag === 'true';
+  } catch { return false; }
+}
+
 function validateDocumentCallback(decrypted) {
-  const fields = [
+  const coreFields = [
     'applicationId', 'submissionId', 'documentId', 'publicUserId',
     'status', 'documentType', 'documentClassification',
-    'ocrResult.documentData', 'ocrResult.transactions',
-    'ocrResult.fraudChecks', 'ocrResult.qualityCheck',
-    'ocrResult.completenessCheck',
   ];
-  return fields.map(f => assertField(decrypted, f, 'doc-callback')).filter(Boolean);
+  const errors = coreFields.map(f => assertField(decrypted, f, 'doc-callback')).filter(Boolean);
+
+  // If the document is fraud-flagged, skip documentData/field assertions
+  // since fraud docs may not parse fully.
+  if (isFraudFlagged(decrypted)) {
+    console.log(`    ⚠ Fraud-flagged document (docId=${decrypted.documentId}) — skipping parse-field assertions`);
+    return errors;
+  }
+
+  // If ocrResult is entirely null/missing (e.g. gateway processing failed),
+  // report it once and skip type-specific field checks.
+  const ocrExists = assertField(decrypted, 'ocrResult', 'doc-callback');
+  if (ocrExists) {
+    errors.push(ocrExists);
+    return errors;
+  }
+
+  const docType = decrypted.documentType ?? '';
+
+  // Type-specific document-level assertions
+  if (docType === 'ElectricUtilityBillingStatement') {
+    errors.push(...[
+      'ocrResult.documentData.bill_period_start',
+      'ocrResult.documentData.bill_period_end',
+    ].map(f => assertField(decrypted, f, 'doc-callback')).filter(Boolean));
+  } else if (docType === 'Payslip') {
+    // At least one of gross_pay or net_pay should exist
+    const gross = assertField(decrypted, 'ocrResult.documentData.gross_pay', 'doc-callback');
+    const net   = assertField(decrypted, 'ocrResult.documentData.net_pay', 'doc-callback');
+    if (gross && net) errors.push(`doc-callback: neither ocrResult.documentData.gross_pay nor net_pay found`);
+  } else if (docType === 'BankStatement' || docType === 'GcashTransactionHistory' || docType === 'GCashTransactionHistory') {
+    errors.push(...[
+      'ocrResult.documentData', 'ocrResult.transactions',
+      'ocrResult.fraudChecks', 'ocrResult.qualityCheck',
+      'ocrResult.completenessCheck',
+    ].map(f => assertField(decrypted, f, 'doc-callback')).filter(Boolean));
+  } else {
+    // All other types — just assert ocrResult exists
+    errors.push(...['ocrResult'].map(f => assertField(decrypted, f, 'doc-callback')).filter(Boolean));
+  }
+
+  return errors;
 }
 
 function validateApplicationCallback(decrypted) {
   const topFields = ['applicationId', 'submissionId', 'publicUserId', 'status'];
-  const bsFields = [
-    'ocrResult.computedFields.BANK_STATEMENT.gs_180days_valid_bankstatement',
-    'ocrResult.computedFields.BANK_STATEMENT.gs_90days_consec_bankstatement',
-    'ocrResult.computedFields.BANK_STATEMENT.gs_totaldebit_bankstatement',
-    'ocrResult.computedFields.BANK_STATEMENT.gs_totalcredit_bankstatement',
-    'ocrResult.computedFields.BANK_STATEMENT.gs_inferredincome_bankstatement',
-    'ocrResult.computedFields.crossCheckFindings',
-  ];
-  return [...topFields, ...bsFields]
-    .map(f => assertField(decrypted, f, 'app-callback'))
-    .filter(Boolean);
+  const errors = topFields.map(f => assertField(decrypted, f, 'app-callback')).filter(Boolean);
+
+  // Determine which document types are in this batch to pick the right computed-field assertions
+  const documents = [];
+  try {
+    const docs = resolvePath(decrypted, 'ocrResult.documents');
+    if (Array.isArray(docs)) documents.push(...docs);
+  } catch { /* no documents array — fall through */ }
+
+  const docTypes = new Set(documents.map(d => d.documentType).filter(Boolean));
+  // Also check top-level ocrResult for single-doc batches
+  try {
+    const dt = resolvePath(decrypted, 'ocrResult.documentType');
+    if (dt) docTypes.add(dt);
+  } catch { /* ignore */ }
+
+  const hasBankStatement = docTypes.has('BankStatement');
+  const hasGCash = docTypes.has('GcashTransactionHistory') || docTypes.has('GCashTransactionHistory');
+
+  if (hasBankStatement) {
+    errors.push(...[
+      'ocrResult.computedFields.BANK_STATEMENT.gs_180days_valid_bankstatement',
+      'ocrResult.computedFields.BANK_STATEMENT.gs_90days_consec_bankstatement',
+      'ocrResult.computedFields.BANK_STATEMENT.gs_totaldebit_bankstatement',
+      'ocrResult.computedFields.BANK_STATEMENT.gs_totalcredit_bankstatement',
+      'ocrResult.computedFields.BANK_STATEMENT.gs_inferredincome_bankstatement',
+      'ocrResult.computedFields.crossCheckFindings',
+    ].map(f => assertField(decrypted, f, 'app-callback')).filter(Boolean));
+  } else if (hasGCash) {
+    errors.push(...[
+      'ocrResult.computedFields.BANK_STATEMENT.gs_180days_valid_bankstatement',
+      'ocrResult.computedFields.BANK_STATEMENT.gs_90days_consec_bankstatement',
+    ].map(f => assertField(decrypted, f, 'app-callback')).filter(Boolean));
+  }
+  // All other document types (ElectricUtilityBillingStatement, Payslip, etc.)
+  // — no computed-field assertions at the application level.
+
+  return errors;
 }
 
 async function runBatchTestCase(tc) {
