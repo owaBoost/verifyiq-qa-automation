@@ -465,6 +465,43 @@ async function runTestCase(tc) {
   }
 
   for (const assertion of (tc.assertions ?? [])) {
+    // anyOf: at least one of the listed paths must exist and match
+    if (assertion.anyOf) {
+      let anyPassed = false;
+      const tried = [];
+      for (const alt of assertion.anyOf) {
+        let value;
+        try { value = resolvePath(body, alt.path); } catch { tried.push(`${alt.path} (not found)`); continue; }
+        if (value == null) { tried.push(`${alt.path} (null)`); continue; }
+        if (alt.pattern) {
+          const hasI = alt.pattern.includes('(?i)');
+          const re = new RegExp(alt.pattern.replace(/\(\?i\)/g, ''), hasI ? 'i' : '');
+          if (re.test(String(value))) { anyPassed = true; tried.push(`${alt.path} = ${JSON.stringify(value)} ✓`); break; }
+          tried.push(`${alt.path} = ${JSON.stringify(value)} (no match)`);
+        } else {
+          anyPassed = true; tried.push(`${alt.path} = ${JSON.stringify(value)} ✓`); break;
+        }
+      }
+      assertionResults.push({
+        path: assertion.anyOf.map(a => a.path).join(' | '),
+        description: assertion.description,
+        expected: 'any of: ' + assertion.anyOf.map(a => a.path).join(', '),
+        actual: tried.join('; '),
+        passed: anyPassed,
+      });
+      if (!anyPassed) {
+        return {
+          passed: false,
+          actualResult: `anyOf failed: ${tried.join('; ')}`,
+          curlCmd,
+          failedAssertions: `Assertion: \`${assertion.description}\`\nTried: ${tried.join('; ')}`,
+          assertionResults,
+          responseBody: body,
+        };
+      }
+      continue;
+    }
+
     let value;
     try {
       value = resolvePath(body, assertion.path);
