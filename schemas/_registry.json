@@ -1,0 +1,21 @@
+{
+  "description": "Maps endpoint patterns to schema files. Patterns are matched against the endpoint path from test cases. First match wins.",
+  "schemas": [
+    {
+      "pattern": "^/health/detailed$",
+      "file": "health-detailed.json"
+    },
+    {
+      "pattern": "^/health$",
+      "file": "health.json"
+    },
+    {
+      "pattern": "^/ai-gateway/health/gateway-circuit-breakers$",
+      "file": "gateway-circuit-breakers.json"
+    },
+    {
+      "pattern": "^/ai-gateway/batch-upload$",
+      "file": "batch-upload.json"
+    }
+  ]
+}

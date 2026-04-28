@@ -1,0 +1,154 @@
+{
+  "_comment": "Curated fixture manifest — primary fixture source for the QA pipeline. Do NOT use live GCS listing unless USE_LIVE_GCS_FIXTURES=true. Do NOT use old qa-automation-dev paths unless --allow-registry-fallback is explicitly set.",
+  "_bucket": "gs://test-ai-docs-data-dev/qa-test-data/",
+  "_updated": "2026-04-26",
+
+  "Payslip": {
+    "parseFileType": "Payslip",
+    "batchDocumentType": "PAYSLIP",
+    "fixtures": [
+      "gs://test-ai-docs-data-dev/qa-test-data/Payslip/ps_compact_004.pdf",
+      "gs://test-ai-docs-data-dev/qa-test-data/Payslip/ps_compact_009.png",
+      "gs://test-ai-docs-data-dev/qa-test-data/Payslip/ps_compact_014.pdf",
+      "gs://test-ai-docs-data-dev/qa-test-data/Payslip/ps_compact_019.png",
+      "gs://test-ai-docs-data-dev/qa-test-data/Payslip/ps_compact_024.pdf",
+      "gs://test-ai-docs-data-dev/qa-test-data/Payslip/ps_compact_029.png",
+      "gs://test-ai-docs-data-dev/qa-test-data/Payslip/ps_compact_034.pdf",
+      "gs://test-ai-docs-data-dev/qa-test-data/Gcash/Blade Asia_Maria Garcia Payslip_2026-01-15.pdf",
+      "gs://test-ai-docs-data-dev/qa-test-data/Gcash/Blade Asia_Maria Garcia Payslip_2026-01-31.pdf",
+      "gs://test-ai-docs-data-dev/qa-test-data/Gcash/Blade Asia_Maria Garcia Payslip_2026-02-15.pdf",
+      "gs://test-ai-docs-data-dev/qa-test-data/Gcash/Blade Asia_Maria Garcia Payslip_2026-02-28.pdf",
+      "gs://test-ai-docs-data-dev/qa-test-data/Gcash/Blade Asia_Maria Garcia Payslip_2026-03-15.pdf",
+      "gs://test-ai-docs-data-dev/qa-test-data/Gcash/Blade Asia_Maria Garcia Payslip_2026-03-31.pdf"
+    ]
+  },
+
+  "BankStatement": {
+    "parseFileType": "BankStatement",
+    "batchDocumentType": "BANK_STATEMENT",
+    "fixtures": [
+      "gs://test-ai-docs-data-dev/qa-test-data/BankStatement/55807_BDO SOA.png",
+      "gs://test-ai-docs-data-dev/qa-test-data/BankStatement/55808_BPI SOA.png",
+      "gs://test-ai-docs-data-dev/qa-test-data/BankStatement/55809_MetroBank SOA.png",
+      "gs://test-ai-docs-data-dev/qa-test-data/BankStatement/55815_EWB_SOA_001.pdf",
+      "gs://test-ai-docs-data-dev/qa-test-data/BankStatement/55816_SB_SOA_006.jpeg",
+      "gs://test-ai-docs-data-dev/qa-test-data/BankStatement/6004_PNB_Bank Statement.pdf"
+    ]
+  },
+
+  "GcashTransactionHistory": {
+    "parseFileType": "GcashTransactionHistory",
+    "batchDocumentType": "GCASH_TRANSACTION_HISTORY",
+    "fixtures": [
+      "gs://test-ai-docs-data-dev/qa-test-data/Gcash/HP-SUP-03.JPG"
+    ]
+  },
+
+  "ElectricUtilityBillingStatement": {
+    "parseFileType": "ElectricUtilityBillingStatement",
+    "batchDocumentType": "ELECTRIC_UTILITY_BILLING_STATEMENT",
+    "fixtures": [
+      "gs://test-ai-docs-data-dev/qa-test-data/Electricity Bill/55557_MERALCO_BILL_005.jpeg",
+      "gs://test-ai-docs-data-dev/qa-test-data/Electricity Bill/55570_MERALCO_BILL_007.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/Electricity Bill/55571_MERALCO_BILL_009.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/Electricity Bill/55572_MERALCO_BILL_0012.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/Electricity Bill/55575_MERALCO_BILL_0017.jpg"
+    ]
+  },
+
+  "CertificateOfEmployment": {
+    "parseFileType": "CertificateOfEmployment",
+    "batchDocumentType": "CERTIFICATE_OF_EMPLOYMENT",
+    "fixtures": [
+      "gs://test-ai-docs-data-dev/qa-test-data/COE/2006_Certificate of employment.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/COE/2013_ Certificate of employment.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/COE/2015_ Certificate of employment.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/COE/2016_ Certificate of employment.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/COE/2017_ Certificate of employment.jpg"
+    ]
+  },
+
+  "BarangayCertificate": {
+    "parseFileType": "BarangayCertificate",
+    "batchDocumentType": "BARANGAY_CERTIFICATE",
+    "fixtures": [
+      "gs://test-ai-docs-data-dev/qa-test-data/Brgy Cert/2025_08_05_barangay_certificate_additional_2.jpeg",
+      "gs://test-ai-docs-data-dev/qa-test-data/Brgy Cert/2025_10_21_barangay_certificate.jpeg",
+      "gs://test-ai-docs-data-dev/qa-test-data/Brgy Cert/2025_11_24_barangay_certificate.jpeg",
+      "gs://test-ai-docs-data-dev/qa-test-data/Brgy Cert/2025_11_25_barangay_certificate.jpeg",
+      "gs://test-ai-docs-data-dev/qa-test-data/Brgy Cert/2025_11_27_barangay_permit.jpg"
+    ]
+  },
+
+  "DriversLicense": {
+    "parseFileType": "DriversLicense",
+    "batchDocumentType": "DRIVERS_LICENSE",
+    "fixtures": [
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Drivers license/55075_Driver_s license_VERTUCIO, ADONIS FRIAS front .jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Drivers license/55076_Driver_s license_ABAÑO, GILBERT ANTHONY ORCA front .jpeg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Drivers license/55077_Driver_s license_PACATE, FLORENCE ANN CAROLINO front .jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Drivers license/56055_Driver license_front.jpeg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Drivers license/56056_2024-11-23 03_01_31 Driver_s License - RANDOLF CALONGO RONOLO.jpg"
+    ]
+  },
+
+  "Passport": {
+    "parseFileType": "Passport",
+    "batchDocumentType": "PASSPORT",
+    "fixtures": [
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Passport/56054_2025-05-20 03_24_29 Passport - KRISTY undefined GOLEZ.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Passport/56055_ Passport - MARLON  RAQUEL.png",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Passport/56056_Passport - MARIA  DELA CRUZ.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Passport/56059_ Passport - MARIA RUBY DIONSON.png",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Passport/56062_Passport.jpg"
+    ]
+  },
+
+  "PhilHealthID": {
+    "parseFileType": "PhilHealthID",
+    "batchDocumentType": "PHILHEALTH_ID",
+    "fixtures": [
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/PhilHealth/2024-11-23 02_27_05 Health ID - BENJILEN MANALAD CAMUA.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/PhilHealth/2025-05-06 12_14_29 Health ID - RIOLYN BAÑAS CRISOSTOMO.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/PhilHealth/2025-05-07 11_15_21 Health ID - LESLIE BEBANGCO MARTINEZ.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/PhilHealth/2025-05-20 08_26_39 Health ID - ANGEL MAE BELINGAN ANTHONY.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/PhilHealth/Health ID 1.jpg"
+    ]
+  },
+
+  "TINID": {
+    "parseFileType": "TINID",
+    "batchDocumentType": "TIN_ID",
+    "fixtures": [
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/TIN/IMG202502119121054.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/TIN/IMG202502171615813.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/TIN/IMG202502171658123.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/TIN/IMG20250218094156.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/TIN/IMG20250218094203.jpg"
+    ]
+  },
+
+  "UMID": {
+    "parseFileType": "UMID",
+    "batchDocumentType": "UMID",
+    "fixtures": [
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/UMID/56051_IMG20250217093357.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/UMID/56052_Unified MultiPurpose ID - FIRST LAST.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/UMID/56056 Unified MultiPurpose ID - WENDELL JOY NAVA PONTALBA(1).jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/UMID/56057 Unified MultiPurpose ID - FIRST LAST.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/UMID/56059_Unified MultiPurpose ID.jpg"
+    ]
+  },
+
+  "VotersID": {
+    "parseFileType": "VotersID",
+    "batchDocumentType": "VOTERS_ID",
+    "fixtures": [
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Voters ID/59003_Voter_s ID .jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Voters ID/59004_Voter_s ID - LACSINTO LYSA LAGAMAYO.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Voters ID/59005_Voter_s ID - FIRST LAST.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Voters ID/59006_ Voter_s ID - CASIPLE ZHARMAIGNE JHAINE ERMIGO.jpg",
+      "gs://test-ai-docs-data-dev/qa-test-data/ID/Voters ID/59008_Voter_s ID - DELA CRUZ LAURAH JEAN GABATO.jpg"
+    ]
+  }
+}

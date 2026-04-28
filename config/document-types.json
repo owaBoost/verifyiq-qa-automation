@@ -1,0 +1,309 @@
+{
+  "_comment": "Dual naming map for VerifyIQ document types. parseFileType = /v1/documents/parse and /v1/documents/batch. batchDocumentType = /ai-gateway/batch-upload. null means no equivalent in that system.",
+
+  "bank_statement": {
+    "parseFileType": "BankStatement",
+    "batchDocumentType": "BANK_STATEMENT",
+    "aliases": ["bank statement", "bank statements", "bdo", "bpi", "metrobank", "unionbank", "rcbc", "chinabank", "pnb", "eastwest bank", "security bank", "landbank", "dbp", "allbank", "rob savings", "deposits", "withdrawals", "account balance", "savings account", "checking account", "current account"]
+  },
+
+  "credit_card_statement": {
+    "parseFileType": "CreditCardStatement",
+    "batchDocumentType": null,
+    "aliases": ["credit card statement", "credit card", "cc statement", "billing statement", "minimum payment due", "credit limit", "outstanding balance"]
+  },
+
+  "gcash_transaction_history": {
+    "parseFileType": "GcashTransactionHistory",
+    "batchDocumentType": null,
+    "aliases": ["gcash", "gcash transaction", "gcash history", "gcash statement", "g-cash", "maya", "g cash"]
+  },
+
+  "payslip": {
+    "parseFileType": "Payslip",
+    "batchDocumentType": "PAYSLIP",
+    "aliases": ["payslip", "pay slip", "payroll", "salary", "gross pay", "net pay", "basic pay", "deductions", "withholding tax", "sss contribution", "philhealth contribution", "pagibig contribution", "compensation", "earnings", "remuneration", "wage", "wages"]
+  },
+
+  "certificate_of_employment": {
+    "parseFileType": "CertificateOfEmployment",
+    "batchDocumentType": "COE",
+    "aliases": ["certificate of employment", "coe", "employment certificate", "employment verification", "tenure", "employment status"]
+  },
+
+  "bir_form_2316": {
+    "parseFileType": "BIRForm2316",
+    "batchDocumentType": null,
+    "aliases": ["bir form 2316", "2316", "bir 2316", "certificate of compensation payment", "annualized withholding tax", "annual income tax certificate"]
+  },
+
+  "bir_form_2303": {
+    "parseFileType": "BIRForm2303",
+    "batchDocumentType": "BIRForm2303",
+    "aliases": ["bir form 2303", "2303", "bir 2303", "certificate of registration", "cor", "bir registration", "tin registration", "business registration bir"]
+  },
+
+  "bir_form_1701": {
+    "parseFileType": "BIRForm1701",
+    "batchDocumentType": null,
+    "aliases": ["bir form 1701", "1701", "bir 1701", "annual income tax return", "self-employed tax return", "1701a", "1701q"]
+  },
+
+  "philippine_national_id": {
+    "parseFileType": "PhilippineNationalID",
+    "batchDocumentType": "PHILIPPINE_NATIONAL_ID",
+    "aliases": ["philippine national id", "national id", "philsys", "phil sys", "philippine id", "phsid", "psa national id", "national identification card"]
+  },
+
+  "drivers_license": {
+    "parseFileType": "DriversLicense",
+    "batchDocumentType": "DRIVERS_LICENSE",
+    "aliases": ["driver's license", "drivers license", "driving license", "dl", "driver license", "lto license", "non-professional driver", "professional driver"]
+  },
+
+  "passport": {
+    "parseFileType": "Passport",
+    "batchDocumentType": "PASSPORT",
+    "aliases": ["passport", "philippine passport", "dfa passport", "travel document", "e-passport"]
+  },
+
+  "sss_id": {
+    "parseFileType": "SSSID",
+    "batchDocumentType": "SSS_ID",
+    "aliases": ["sss id", "sss card", "social security system id", "sss identification", "ss card"]
+  },
+
+  "sss_personal_record": {
+    "parseFileType": "SSSPersonalRecord",
+    "batchDocumentType": "SSS_PERSONAL_RECORD",
+    "aliases": ["sss personal record", "sss e1", "e1 form", "sss member data", "ss personal record", "sss record", "member data amendment form"]
+  },
+
+  "umid": {
+    "parseFileType": "UMID",
+    "batchDocumentType": "UMID",
+    "aliases": ["umid", "unified multi-purpose id", "unified multipurpose id", "sss umid", "umid card"]
+  },
+
+  "philhealth_id": {
+    "parseFileType": "PhilHealthID",
+    "batchDocumentType": "PHILHEALTH_ID",
+    "aliases": ["philhealth id", "philhealth card", "philhealth", "phil health", "phic", "philhealth identification number", "pin card"]
+  },
+
+  "tin_id": {
+    "parseFileType": "TINID",
+    "batchDocumentType": "TIN_ID",
+    "aliases": ["tin id", "tin card", "taxpayer identification number", "tin identification", "bir tin", "tax identification number card"]
+  },
+
+  "voters_id": {
+    "parseFileType": "VotersID",
+    "batchDocumentType": "VOTERS_ID",
+    "aliases": ["voter's id", "voters id", "voter id", "comelec id", "voter's identification card", "voterid"]
+  },
+
+  "prc_id": {
+    "parseFileType": "PRCID",
+    "batchDocumentType": "PRC_ID",
+    "aliases": ["prc id", "prc card", "professional regulation commission", "professional id", "prc license", "professional license card"]
+  },
+
+  "postal_id": {
+    "parseFileType": "PostalID",
+    "batchDocumentType": "POSTAL_ID",
+    "aliases": ["postal id", "philpost id", "post office id", "philippine postal id", "postal identification card"]
+  },
+
+  "hdmf_id": {
+    "parseFileType": "HDMFID",
+    "batchDocumentType": "HDMF_ID",
+    "aliases": ["hdmf id", "pag-ibig id", "pagibig id", "pag ibig id", "hdmf card", "home development mutual fund id", "pag-ibig fund id"]
+  },
+
+  "nbi_clearance": {
+    "parseFileType": "NBIClearance",
+    "batchDocumentType": "NBI_CLEARANCE",
+    "aliases": ["nbi clearance", "national bureau of investigation clearance", "nbi", "police clearance", "nbi certificate"]
+  },
+
+  "acri_card": {
+    "parseFileType": "ACRICard",
+    "batchDocumentType": "ACRI_CARD",
+    "aliases": ["acri card", "alien certificate of registration", "acr i-card", "acr", "alien registration", "immigration card", "bureau of immigration card"]
+  },
+
+  "sec_certificate_of_incorporation": {
+    "parseFileType": "SECCertificateOfIncorporation",
+    "batchDocumentType": null,
+    "aliases": ["sec certificate of incorporation", "certificate of incorporation", "sec certificate", "sec cor", "sec registration", "articles of incorporation certificate"]
+  },
+
+  "articles_of_incorporation": {
+    "parseFileType": "ArticlesOfIncorporation",
+    "batchDocumentType": null,
+    "aliases": ["articles of incorporation", "aoi", "articles of incorp", "memorandum and articles", "corporate charter"]
+  },
+
+  "articles_of_partnership": {
+    "parseFileType": "ArticlesOfPartnership",
+    "batchDocumentType": null,
+    "aliases": ["articles of partnership", "aop", "partnership agreement", "articles of co-partnership"]
+  },
+
+  "dti_registration_certificate": {
+    "parseFileType": "DTIRegistrationCertificate",
+    "batchDocumentType": null,
+    "aliases": ["dti registration certificate", "dti certificate", "dti registration", "department of trade and industry registration", "sole proprietorship registration", "business name registration"]
+  },
+
+  "dti_permit": {
+    "parseFileType": "DTIPermit",
+    "batchDocumentType": null,
+    "aliases": ["dti permit", "dti business permit", "dti license"]
+  },
+
+  "mayors_permit": {
+    "parseFileType": "MayorsPermit",
+    "batchDocumentType": null,
+    "aliases": ["mayor's permit", "mayors permit", "business permit", "local government permit", "city permit", "municipal permit", "barangay business permit"]
+  },
+
+  "barangay_certificate": {
+    "parseFileType": "BarangayCertificate",
+    "batchDocumentType": null,
+    "aliases": ["barangay certificate", "barangay clearance", "barangay certification", "brgy certificate", "brgy clearance", "barangay residency certificate"]
+  },
+
+  "board_resolution": {
+    "parseFileType": "BoardResolution",
+    "batchDocumentType": null,
+    "aliases": ["board resolution", "secretary's certificate", "corporate secretary certificate", "board resolution and secretary certificate", "corporate authorization"]
+  },
+
+  "secretary_certificate": {
+    "parseFileType": "SecretaryCertificate",
+    "batchDocumentType": null,
+    "aliases": ["secretary certificate", "secretary's certificate", "corporate secretary certification", "incumbent officers", "authorized signatory certificate"]
+  },
+
+  "lto_certificate_of_registration": {
+    "parseFileType": "LTOCertificateOfRegistration",
+    "batchDocumentType": null,
+    "aliases": ["lto certificate of registration", "lto cr", "vehicle certificate of registration", "car registration", "motor vehicle registration", "or cr", "orcr"]
+  },
+
+  "amlcbsp_certificate_of_registration": {
+    "parseFileType": "AMLCBSPCertificateOfRegistration",
+    "batchDocumentType": null,
+    "aliases": ["amlc registration", "bsp amlc certificate", "anti-money laundering registration", "amlc bsp certificate of registration"]
+  },
+
+  "amlcbsp_provisional_certificate_of_registration": {
+    "parseFileType": "AMLCBSPProvisionalCertificateOfRegistration",
+    "batchDocumentType": null,
+    "aliases": ["amlc provisional registration", "bsp amlc provisional", "amlc provisional certificate", "provisional certificate of registration amlc"]
+  },
+
+  "bir_exemption_certificate": {
+    "parseFileType": "BIRExemptionCertificate",
+    "batchDocumentType": null,
+    "aliases": ["bir exemption certificate", "tax exemption certificate", "bir tax exemption", "income tax exemption", "vat exemption"]
+  },
+
+  "philippine_birth_certificate": {
+    "parseFileType": "PhilippineBirthCertificate",
+    "batchDocumentType": null,
+    "aliases": ["birth certificate", "psa birth certificate", "nso birth certificate", "philippine birth certificate", "certificate of live birth", "birth record"]
+  },
+
+  "sec_certificate_of_partnership": {
+    "parseFileType": "SECCertificateOfPartnership",
+    "batchDocumentType": null,
+    "aliases": ["sec certificate of partnership", "certificate of partnership", "sec partnership registration", "partnership registration certificate"]
+  },
+
+  "electric_utility_billing_statement": {
+    "parseFileType": "ElectricUtilityBillingStatement",
+    "batchDocumentType": "ELECTRICITY_BILL",
+    "aliases": ["electricity bill", "electric bill", "meralco", "veco", "cepalco", "electric utility", "power bill", "electricity statement", "utility billing", "kwh", "kilowatt", "electric utility billing"]
+  },
+
+  "water_utility_billing_statement": {
+    "parseFileType": "WaterUtilityBillingStatement",
+    "batchDocumentType": "WaterBill",
+    "aliases": ["water bill", "water utility", "manila water", "maynilad", "water billing statement", "water statement", "water consumption", "cubic meter"]
+  },
+
+  "telco_bill": {
+    "parseFileType": "TelcoBill",
+    "batchDocumentType": "TelcoBill",
+    "aliases": ["telco bill", "telecom bill", "telecommunications bill", "postpaid bill", "mobile bill", "internet bill", "telephone bill"]
+  },
+
+  "converge_telco_bill": {
+    "parseFileType": "ConvergeTelcoBill",
+    "batchDocumentType": "TelcoBill",
+    "aliases": ["converge bill", "converge ict", "converge fiber", "converge fiberx", "converge invoice"]
+  },
+
+  "dito_telco_bill": {
+    "parseFileType": "DitoTelcoBill",
+    "batchDocumentType": "TelcoBill",
+    "aliases": ["dito bill", "dito telecommunity", "dito telecom", "dito mobile bill"]
+  },
+
+  "globe_telco_bill": {
+    "parseFileType": "GlobeTelcoBill",
+    "batchDocumentType": "TelcoBill",
+    "aliases": ["globe bill", "globe telecom", "globe postpaid", "globe at home", "globe fiber", "globe invoice"]
+  },
+
+  "pldt_telco_bill": {
+    "parseFileType": "PLDTTelcoBill",
+    "batchDocumentType": "TelcoBill",
+    "aliases": ["pldt bill", "pldt", "pldt home", "pldt fibr", "pldt invoice", "philippine long distance telephone"]
+  },
+
+  "sky_cable_telco_bill": {
+    "parseFileType": "SkyCableTelcoBill",
+    "batchDocumentType": "TelcoBill",
+    "aliases": ["sky cable bill", "skycable", "sky cable", "sky broadband", "sky internet bill"]
+  },
+
+  "smart_telco_bill": {
+    "parseFileType": "SmartTelcoBill",
+    "batchDocumentType": "TelcoBill",
+    "aliases": ["smart bill", "smart communications", "smart postpaid", "smart home wifi", "smart bro", "smart invoice"]
+  },
+
+  "orcr": {
+    "parseFileType": "ORCR",
+    "batchDocumentType": null,
+    "aliases": ["orcr", "official receipt and certificate of registration", "or/cr", "vehicle or cr", "lto or", "lto official receipt and cr"]
+  },
+
+  "general_information_sheet": {
+    "parseFileType": "GeneralInformationSheet",
+    "batchDocumentType": null,
+    "aliases": ["general information sheet", "gis", "sec gis", "annual gis", "corporate gis", "general information sheet sec"]
+  },
+
+  "lto_official_receipt": {
+    "parseFileType": "LTOOfficialReceipt",
+    "batchDocumentType": null,
+    "aliases": ["lto official receipt", "lto or", "lto receipt", "vehicle renewal receipt", "motor vehicle or"]
+  },
+
+  "hbo_max_receipt": {
+    "parseFileType": "HBOMaxReceipt",
+    "batchDocumentType": null,
+    "aliases": ["hbo max receipt", "hbo max", "max receipt", "hbo subscription receipt", "hbo billing"]
+  },
+
+  "netflix_invoice": {
+    "parseFileType": "NetflixInvoice",
+    "batchDocumentType": null,
+    "aliases": ["netflix invoice", "netflix receipt", "netflix billing", "netflix subscription", "netflix charge"]
+  }
+}

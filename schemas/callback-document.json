@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Document callback payload (decrypted)",
+  "description": "Per-document callback from /ai-gateway/batch-upload processing",
+  "type": "object",
+  "required": ["applicationId", "submissionId", "documentId", "publicUserId", "status", "documentType"],
+  "properties": {
+    "applicationId": { "type": "string" },
+    "submissionId": { "type": "string" },
+    "documentId": { "type": "string" },
+    "publicUserId": { "type": "string" },
+    "status": { "type": "string" },
+    "documentType": { "type": "string" },
+    "documentClassification": { "type": "string" },
+    "ocrResult": {
+      "type": "object",
+      "properties": {
+        "documentData": { "type": "object" },
+        "transactions": { "type": "array" },
+        "fraudChecks": {
+          "type": "object",
+          "properties": {
+            "overall_fraud_flag": {}
+          }
+        },
+        "qualityCheck": { "type": "object" },
+        "completenessCheck": { "type": "object" }
+      }
+    }
+  }
+}

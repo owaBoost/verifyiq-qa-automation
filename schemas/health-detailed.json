@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET /health/detailed",
+  "description": "Detailed health check response with service statuses",
+  "type": "object",
+  "required": ["services", "cache"],
+  "properties": {
+    "services": {
+      "type": "object",
+      "required": ["vlm", "sightengine", "openai", "textract"],
+      "properties": {
+        "vlm": {},
+        "sightengine": {},
+        "openai": {},
+        "textract": {}
+      }
+    },
+    "cache": {
+      "type": "object",
+      "properties": {
+        "redis": {
+          "type": "object",
+          "required": ["healthy"],
+          "properties": {
+            "healthy": { "type": "boolean" }
+          }
+        },
+        "postgresql": {
+          "type": "object",
+          "required": ["healthy"],
+          "properties": {
+            "healthy": { "type": "boolean" }
+          }
+        },
+        "force_failure_enabled": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

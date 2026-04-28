@@ -7,3 +7,14 @@ test-cases.json
 .api-schema.json
 .clickup-context.md
 .fixture-map.txt
+parse-results/
+bulk-results/
+tasks/running/
+tasks/completed/
+reports/*.json
+reports/*.md
+reports/callbacks/*/
+!reports/.gitkeep
+!reports/callbacks/.gitkeep
+!tasks/running/.gitkeep
+!tasks/completed/.gitkeep

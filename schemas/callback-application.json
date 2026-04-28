@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Application callback payload (decrypted)",
+  "description": "Application-level callback from /ai-gateway/batch-upload processing",
+  "type": "object",
+  "required": ["applicationId", "submissionId", "publicUserId", "status"],
+  "properties": {
+    "applicationId": { "type": "string" },
+    "submissionId": { "type": "string" },
+    "publicUserId": { "type": "string" },
+    "status": { "type": "string" },
+    "ocrResult": {
+      "type": "object",
+      "properties": {
+        "documents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "documentType": { "type": "string" },
+              "documentId": { "type": "string" }
+            }
+          }
+        },
+        "computedFields": {
+          "type": "object",
+          "properties": {
+            "BANK_STATEMENT": {
+              "type": "object",
+              "properties": {
+                "gs_180days_valid_bankstatement": {},
+                "gs_90days_consec_bankstatement": {},
+                "gs_totaldebit_bankstatement": {},
+                "gs_totalcredit_bankstatement": {},
+                "gs_inferredincome_bankstatement": {}
+              }
+            },
+            "crossCheckFindings": {}
+          }
+        }
+      }
+    }
+  }
+}

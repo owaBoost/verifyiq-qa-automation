@@ -1,0 +1,12 @@
+{
+  "id": "plan-sample",
+  "createdAt": "2026-04-24T12:00:00.000Z",
+  "prNumber": "999",
+  "prRepo": "boost-capital/ai-parser-studio",
+  "previewUrl": "https://pr-999---ai-boostform-api-preview-xxxxx.us-central1.run.app",
+  "clickupTaskIds": ["86b91ztdx"],
+  "status": "pending",
+  "testCasesFile": null,
+  "resultsFile": null,
+  "reportFile": null
+}

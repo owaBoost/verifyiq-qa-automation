@@ -5,11 +5,20 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "qa": "node run_qa.mjs"
+    "qa": "node run_qa.mjs",
+    "pipeline": "node pipeline.mjs",
+    "pipeline:parse": "node pipeline.mjs --test-type=parse",
+    "pipeline:batch": "node pipeline.mjs --test-type=batch-upload",
+    "pipeline:auth": "node pipeline.mjs --test-type=auth-boundary",
+    "pipeline:full": "node pipeline.mjs --test-type=full-regression",
+    "watch:pipeline": "node watcher.mjs",
+    "bulk-parse": "node bulk-parse/run-bulk.mjs"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.16.0",
     "axios": "^1.7.0",
     "dotenv": "^17.4.0",
+    "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.0"
   }
 }

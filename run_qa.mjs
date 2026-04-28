@@ -14,10 +14,11 @@ import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import { readFileSync } from 'fs';
 import { execSync } from 'child_process';
+import { getGoogleIdToken } from './utils/iap-auth.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const GITHUB_TOKEN    = process.env.GH_TOKEN;        // VERIFYIQ_PLAYWRIGHT_TOKEN PAT
+const GITHUB_TOKEN    = process.env.GH_TOKEN;        // PAT with repo + PR comment permissions
 const PR_REPO         = process.env.PR_REPO;         // owner/repo
 const PR_NUMBER       = process.env.PR_NUMBER;
 const CLICKUP_TOKEN   = process.env.CLICKUP_API_TOKEN;
@@ -27,6 +28,10 @@ const PREVIEW_URL     = (process.env.VERIFYIQ_SERVICE_URL || '').trim().replace(
 let   WEBHOOK_TOKEN_ID       = process.env.WEBHOOK_TOKEN_ID; // overwritten at runtime
 const WEBHOOK_SERVER_URL     = (process.env.WEBHOOK_SERVER_URL || '').trim().replace(/\/$/, '');
 const GOOGLE_SA_KEY_FILE     = process.env.GOOGLE_SA_KEY_FILE;
+const IAP_CLIENT_ID          = process.env.IAP_CLIENT_ID;       // OAuth client ID from GCP IAP
+const USE_IAP                = process.env.USE_IAP === 'true';  // opt-in flag
+const DISABLE_CLICKUP        = process.env.DISABLE_CLICKUP === 'true';
+const DISABLE_REMOTE_POSTING = process.env.DISABLE_REMOTE_POSTING === 'true';
 
 // ── Webhook server IAP auth ──────────────────────────────────────────────────
 
@@ -126,6 +131,7 @@ const clickup = axios.create({
 let _iapToken = null;
 let _iapTokenExp = 0;
 
+// DEPRECATED: self-signed JWT — only works when IAP is disabled
 function getIapToken() {
   const now = Math.floor(Date.now() / 1000);
   // Return cached token if still valid (with 60s buffer)
@@ -160,21 +166,45 @@ function getIapToken() {
   return _iapToken;
 }
 
+/**
+ * Return a Bearer token for IAP-protected endpoints.
+ * When USE_IAP + IAP_CLIENT_ID are set, uses Google-signed OIDC; otherwise falls back to self-signed JWT.
+ */
+async function getIapBearerToken() {
+  if (USE_IAP && IAP_CLIENT_ID) {
+    return getGoogleIdToken(IAP_CLIENT_ID);
+  }
+  return getIapToken();
+}
+
 function needsIapAuth(endpoint) {
   return endpoint.startsWith('/ai-gateway/') || endpoint.startsWith('/api/v1/applications/');
 }
 
-function createPreviewClient(endpoint) {
-  const authHeader = needsIapAuth(endpoint)
-    ? `Bearer ${getIapToken()}`
-    : `Bearer ${VERIFYIQ_KEY}`;
+async function createPreviewClient(endpoint) {
+  const headers = {
+    'X-Tenant-Token': VERIFYIQ_KEY,
+    'Content-Type': 'application/json',
+  };
+
+  if (USE_IAP && IAP_CLIENT_ID) {
+    // IAP-protected domain: OIDC token in Proxy-Authorization (consumed by IAP),
+    // API key in Authorization (forwarded to app layer).
+    // For ai-gateway endpoints the app reads X-Tenant-Token, not Authorization.
+    headers['Proxy-Authorization'] = `Bearer ${await getGoogleIdToken(IAP_CLIENT_ID)}`;
+    headers.Authorization = needsIapAuth(endpoint)
+      ? `Bearer ${await getGoogleIdToken(IAP_CLIENT_ID)}`
+      : `Bearer ${VERIFYIQ_KEY}`;
+  } else if (needsIapAuth(endpoint)) {
+    // DEPRECATED path: self-signed JWT for envs without IAP enforcement
+    headers.Authorization = `Bearer ${getIapToken()}`;
+  } else {
+    headers.Authorization = `Bearer ${VERIFYIQ_KEY}`;
+  }
+
   return axios.create({
     baseURL: PREVIEW_URL,
-    headers: {
-      Authorization: authHeader,
-      'X-Tenant-Token': VERIFYIQ_KEY,
-      'Content-Type': 'application/json',
-    },
+    headers,
     validateStatus: () => true,
   });
 }
@@ -242,6 +272,10 @@ async function clearClickUpList() {
 }
 
 async function createClickUpList(pr) {
+  if (DISABLE_REMOTE_POSTING || DISABLE_CLICKUP) {
+    console.log('  [run_qa] ClickUp disabled — skipping list creation');
+    return;
+  }
   if (!CLICKUP_TOKEN) {
     console.warn('  ⚠ CLICKUP_API_TOKEN not set — ClickUp integration disabled');
     return;
@@ -343,7 +377,7 @@ async function updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, fail
     if (assertionResults?.length) {
       commentLines.push('', '**Assertions:**');
       for (const ar of assertionResults) {
-        const icon = ar.passed ? '✅' : '❌';
+        const icon = ar.warning ? '⚠️' : ar.passed ? '✅' : '❌';
         commentLines.push(`- ${icon} \`${ar.path}\` → expected: \`${ar.expected}\` → actual: \`${ar.actual}\``);
       }
     }
@@ -411,6 +445,404 @@ function isHealthStatusField(path) {
   return /(?:^|\.)status$/.test(path) || /(?:^|\.)healthy$/.test(path);
 }
 
+/**
+ * Evaluate a completenessScore assertion against the parsed response body.
+ *
+ * Supports two field-definition formats in assertion.required / assertion.optional:
+ *
+ *   Object format (payslip legacy):
+ *     { fieldName: points, ... }
+ *
+ *   Array format (bank-statement, utility-bill):
+ *     [{ field: 'name', points }, ...]           single field
+ *     [{ fields: ['a', 'b'], points }, ...]       OR group — points awarded if any present
+ *
+ * Field lookup strategy per entry:
+ *   1. Each documentData[] item's own keys
+ *   2. Root body keys (for GS computed fields like gs_bankname_bankstatement)
+ *
+ * Takes the worst (lowest) score across all documentData items (most conservative).
+ *
+ * Thresholds (from assertion.thresholds):
+ *   score >= pass   → PASS  (test passes, no warning)
+ *   score >= warn   → WARN  (test passes, logged as ⚠️)
+ *   score <  warn   → FAIL  (test fails)
+ */
+function runCompletenessAssertion(assertion, body) {
+  const { required = {}, optional = {}, thresholds = {}, maxScore = 100 } = assertion;
+  const passThreshold = thresholds.pass ?? 90;
+  const warnThreshold = thresholds.warn ?? 70;
+
+  // Resolve the items array to score. Default: documentData (payslip / most types).
+  // Bank statements use documentData.summary; docArrayPath can be a string or string[].
+  // The first path that resolves to a non-empty array wins.
+  const docArrayPaths = assertion.docArrayPath
+    ? (Array.isArray(assertion.docArrayPath) ? assertion.docArrayPath : [assertion.docArrayPath])
+    : ['documentData'];
+
+  let docItems = null;
+  for (const p of docArrayPaths) {
+    try {
+      const candidate = resolvePath(body, p);
+      if (Array.isArray(candidate) && candidate.length > 0) {
+        docItems = candidate;
+        break;
+      }
+    } catch { /* try next path */ }
+  }
+  if (!docItems) {
+    const triedPaths = docArrayPaths.join(', ');
+    return { skipped: true, skipReason: `no scoreable array found at [${triedPaths}] — skipping completeness check` };
+  }
+
+  const isPresent = v => v != null && v !== '' && String(v).toUpperCase() !== 'N/A';
+
+  // Check a single key against the documentData item and the root body
+  const hasKey = (key, item) => isPresent(item[key]) || isPresent(body[key]);
+
+  // Normalise both field formats into { keys, points, label } entries
+  function* iterateFields(fields) {
+    if (Array.isArray(fields)) {
+      for (const entry of fields) {
+        const keys  = entry.fields ?? (entry.field ? [entry.field] : []);
+        const label = keys.length > 1 ? keys.join(' | ') : (keys[0] ?? '(unknown)');
+        yield { keys, points: entry.points ?? 0, label };
+      }
+    } else {
+      for (const [field, pts] of Object.entries(fields ?? {})) {
+        yield { keys: [field], points: pts, label: field };
+      }
+    }
+  }
+
+  let worstScore   = Infinity;
+  let worstDetails = null;
+
+  for (const item of docItems) {
+    if (!item || typeof item !== 'object') continue;
+
+    let score = 0;
+    const missingRequired = [];
+    const missingOptional = [];
+
+    for (const { keys, points, label } of iterateFields(required)) {
+      if (keys.some(k => hasKey(k, item))) score += points;
+      else missingRequired.push(label);
+    }
+    for (const { keys, points, label } of iterateFields(optional)) {
+      if (keys.some(k => hasKey(k, item))) score += points;
+      else missingOptional.push(label);
+    }
+
+    if (score < worstScore) {
+      worstScore   = score;
+      worstDetails = { score, missingRequired, missingOptional };
+    }
+  }
+
+  if (!worstDetails) {
+    return { skipped: true, skipReason: 'no scoreable documentData items found — skipping completeness check' };
+  }
+
+  const { score, missingRequired, missingOptional } = worstDetails;
+  const statusLabel = score >= passThreshold ? 'PASS' : score >= warnThreshold ? 'WARN' : 'FAIL';
+  const passed  = score >= warnThreshold;
+  const warning = score >= warnThreshold && score < passThreshold;
+
+  const actual = [
+    `score=${score}/${maxScore}`,
+    `status=${statusLabel}`,
+    missingRequired.length ? `missing_required=${missingRequired.join(',')}` : null,
+    missingOptional.length ? `missing_optional=${missingOptional.join(',')}` : null,
+  ].filter(Boolean).join(' ');
+
+  return {
+    passed,
+    warning,
+    score,
+    maxScore,
+    statusLabel,
+    actual,
+    missingRequired,
+    missingOptional,
+    detail: passed ? null
+      : `Completeness score ${score}/${maxScore} is below FAIL threshold (${warnThreshold}). `
+        + `Missing required: ${missingRequired.join(', ') || 'none'}. `
+        + `Missing optional: ${missingOptional.join(', ') || 'none'}.`,
+  };
+}
+
+/**
+ * Evaluate a computed (cross-field) assertion against the parsed response body.
+ *
+ * Returns one of:
+ *   { skipped: true,  skipReason: string }           — required paths absent; emit WARN
+ *   { passed: true,   actual: string }                — check passed
+ *   { passed: false,  actual: string, detail: string} — check failed; detail is the human message
+ *
+ * Numeric parsing handles both number and string-number values ("12,345.67").
+ * All checks are tolerance-aware for the numeric equality cases.
+ */
+function runComputedAssertion(assertion, body) {
+  const { check, paths, tolerance = 0 } = assertion;
+
+  const parseNum = v => {
+    if (v == null) return null;
+    const n = parseFloat(String(v).replace(/,/g, ''));
+    return isNaN(n) ? null : n;
+  };
+
+  const resolve = key => {
+    const p = paths?.[key];
+    if (!p) return null;
+    try { return resolvePath(body, p); } catch { return null; }
+  };
+
+  switch (check) {
+    case 'net_approx_gross_minus_total': {
+      const grossPay = parseNum(resolve('grossPay'));
+      const netPay   = parseNum(resolve('netPay'));
+      if (grossPay == null || netPay == null) {
+        return { skipped: true, skipReason: 'grossPay or netPay not present — skipping net=gross−deductions check' };
+      }
+      const td = parseNum(resolve('totalDeductions')) ?? parseNum(resolve('totalDeductionsMeta'));
+      if (td == null) {
+        return { skipped: true, skipReason: 'totalDeductions not present — skipping net=gross−deductions check' };
+      }
+      const expected = grossPay - td;
+      const diff = Math.abs(expected - netPay);
+      const passed = diff <= tolerance;
+      return {
+        passed,
+        actual: `grossPay=${grossPay}, totalDeductions=${td}, expectedNet=${expected.toFixed(2)}, actualNet=${netPay}, diff=${diff.toFixed(2)}`,
+        detail: passed ? null : `netPay (${netPay}) ≠ grossPay (${grossPay}) − totalDeductions (${td}) = ${expected.toFixed(2)} [diff=${diff.toFixed(2)}, tolerance=±${tolerance}]`,
+      };
+    }
+
+    case 'total_approx_sum_deductions': {
+      // Extraction rules: total_deductions is only extracted if explicitly present;
+      // individual deductions may be a partial subset, so the sum check is unreliable.
+      // Skipped by default unless the mapping explicitly clears skipByDefault.
+      if (assertion.skipByDefault) {
+        return { skipped: true, skipReason: '[computed] skipped total deduction check (non-standard payslip format)' };
+      }
+      const total = parseNum(resolve('totalDeductions')) ?? parseNum(resolve('totalDeductionsMeta'));
+      if (total == null) {
+        return { skipped: true, skipReason: '[computed] skipped total deduction check (no explicit total line)' };
+      }
+      const deductionKeys = ['withholdingTax', 'sss', 'philhealth', 'hdmfPagibig'];
+      const present = deductionKeys.map(k => parseNum(resolve(k))).filter(v => v != null);
+      if (present.length === 0) {
+        return { skipped: true, skipReason: '[computed] skipped total deduction check (no individual deductions present)' };
+      }
+      const sumDeductions = present.reduce((a, b) => a + b, 0);
+      const diff = Math.abs(total - sumDeductions);
+      const passed = diff <= tolerance;
+      return {
+        passed,
+        actual: `totalDeductions=${total}, sumOfPresent=${sumDeductions.toFixed(2)} (${present.length} fields), diff=${diff.toFixed(2)}`,
+        detail: passed ? null : `totalDeductions (${total}) ≠ sum of present deductions (${sumDeductions.toFixed(2)}) [diff=${diff.toFixed(2)}, tolerance=±${tolerance}]`,
+      };
+    }
+
+    case 'gross_gte_net': {
+      const grossPay = parseNum(resolve('grossPay'));
+      const netPay   = parseNum(resolve('netPay'));
+      if (grossPay == null || netPay == null) {
+        return { skipped: true, skipReason: 'grossPay or netPay not present — skipping gross≥net check' };
+      }
+      const passed = grossPay >= netPay;
+      return {
+        passed,
+        actual: `grossPay=${grossPay}, netPay=${netPay}`,
+        detail: passed ? null : `grossPay (${grossPay}) < netPay (${netPay}) — impossible: gross must be ≥ net`,
+      };
+    }
+
+    case 'deductions_non_negative': {
+      const keys = ['withholdingTax', 'sss', 'philhealth', 'hdmfPagibig'];
+      const violations = [];
+      const present    = [];
+      for (const key of keys) {
+        const v = parseNum(resolve(key));
+        if (v == null) continue;
+        present.push(`${key}=${v}`);
+        if (v < 0) violations.push(`${key}=${v}`);
+      }
+      if (present.length === 0) {
+        return { skipped: true, skipReason: 'no deductions present — skipping non-negative check' };
+      }
+      const passed = violations.length === 0;
+      return {
+        passed,
+        actual: present.join(', '),
+        detail: passed ? null : `negative deductions detected: ${violations.join(', ')}`,
+      };
+    }
+
+    case 'fraud_score_range': {
+      const fraudScore = parseNum(resolve('fraudScore'));
+      if (fraudScore == null) {
+        return { skipped: true, skipReason: 'fraudScore not present — skipping range check' };
+      }
+      const passed = fraudScore >= 0 && fraudScore <= 100;
+      return {
+        passed,
+        actual: `fraudScore=${fraudScore}`,
+        detail: passed ? null : `fraudScore (${fraudScore}) is outside valid range [0, 100]`,
+      };
+    }
+
+    case 'no_negative_pay': {
+      const grossPay = parseNum(resolve('grossPay'));
+      const netPay   = parseNum(resolve('netPay'));
+      if (grossPay == null && netPay == null) {
+        return { skipped: true, skipReason: 'neither grossPay nor netPay present — skipping positive-pay check' };
+      }
+      const violations = [];
+      if (grossPay != null && grossPay <= 0) violations.push(`grossPay=${grossPay}`);
+      if (netPay   != null && netPay   <= 0) violations.push(`netPay=${netPay}`);
+      const parts = [
+        grossPay != null ? `grossPay=${grossPay}` : null,
+        netPay   != null ? `netPay=${netPay}`   : null,
+      ].filter(Boolean);
+      const passed = violations.length === 0;
+      return {
+        passed,
+        actual: parts.join(', '),
+        detail: passed ? null : `non-positive pay values: ${violations.join(', ')}`,
+      };
+    }
+
+    case 'bank_closing_balance_non_negative': {
+      const closing = parseNum(resolve('closingBalance'));
+      if (closing == null) {
+        return { skipped: true, skipReason: 'closingBalance not present — skipping non-negative check' };
+      }
+      const passed = closing >= 0;
+      return {
+        passed,
+        actual: `closingBalance=${closing}`,
+        detail: passed ? null : `closingBalance (${closing}) is negative — unexpected for a statement closing balance`,
+      };
+    }
+
+    case 'bank_total_credits_gte_debits': {
+      if (assertion.skipByDefault) {
+        return { skipped: true, skipReason: '[computed] skipped credits≥debits check (optional — requires complete statement data)' };
+      }
+      const credits = parseNum(resolve('totalCredits'))   ?? parseNum(resolve('summaryCredits'));
+      const debits  = parseNum(resolve('totalDebits'))    ?? parseNum(resolve('summaryDebits'));
+      if (credits == null || debits == null) {
+        return { skipped: true, skipReason: 'totalCredits or totalDebits not present — skipping credits≥debits check' };
+      }
+      const passed = credits >= debits;
+      return {
+        passed,
+        actual: `totalCredits=${credits}, totalDebits=${debits}`,
+        detail: passed ? null : `totalCredits (${credits}) < totalDebits (${debits})`,
+      };
+    }
+
+    case 'bank_transaction_count_positive': {
+      const transactions = resolve('transactions');
+      if (transactions == null) {
+        return { skipped: true, skipReason: 'documentData.transactions not present — skipping count check' };
+      }
+      if (!Array.isArray(transactions)) {
+        return {
+          passed: false,
+          actual: `transactions is ${typeof transactions}`,
+          detail: 'documentData.transactions must be an array',
+        };
+      }
+      const passed = transactions.length > 0;
+      return {
+        passed,
+        actual: `transaction count=${transactions.length}`,
+        detail: passed ? null : 'documentData.transactions is empty — expected at least one transaction',
+      };
+    }
+
+    case 'no_cross_section_contamination': {
+      // Earnings and deduction sections must not bleed into each other.
+      // A deduction field resolving to the same value as an earnings field indicates
+      // the extractor mixed sections. Giftaway is a known exception (employer gift
+      // that legitimately appears in both sections) — flag but do not fail.
+      const earningsMap = {
+        grossPay: parseNum(resolve('grossPay')),
+        basicPay: parseNum(resolve('basicPay')),
+        netPay:   parseNum(resolve('netPay')),
+      };
+      const deductionMap = {
+        withholdingTax: parseNum(resolve('withholdingTax')),
+        sss:            parseNum(resolve('sss')),
+        philhealth:     parseNum(resolve('philhealth')),
+        hdmfPagibig:    parseNum(resolve('hdmfPagibig')),
+      };
+      const earningsPresent   = Object.entries(earningsMap).filter(([, v]) => v != null && v !== 0);
+      const deductionsPresent = Object.entries(deductionMap).filter(([, v]) => v != null && v !== 0);
+      if (earningsPresent.length === 0 || deductionsPresent.length === 0) {
+        return { skipped: true, skipReason: '[computed] skipped cross-section contamination check (insufficient fields)' };
+      }
+      const earningsSet = new Set(earningsPresent.map(([, v]) => v));
+      const violations  = deductionsPresent.filter(([, v]) => earningsSet.has(v));
+      if (violations.length === 0) {
+        return {
+          passed: true,
+          actual: `earnings=[${earningsPresent.map(([k, v]) => `${k}=${v}`).join(', ')}] deductions=[${deductionsPresent.map(([k, v]) => `${k}=${v}`).join(', ')}]`,
+        };
+      }
+      // Giftaway exception: a single deduction matching an earnings value may be a
+      // legitimate employer gift. Flag as a warning via detail but still pass — the
+      // runner treats detail+passed:true as advisory.
+      const violationStr = violations.map(([k, v]) => `${k}=${v}`).join(', ');
+      const isLikelyGiftaway = violations.length === 1;
+      return {
+        passed: isLikelyGiftaway,
+        actual: `cross-section overlap: ${violationStr}`,
+        detail: isLikelyGiftaway
+          ? `possible Giftaway: ${violationStr} matches an earnings value — verify document`
+          : `earnings/deductions section contamination: ${violationStr} — deduction field(s) resolved to earnings values`,
+      };
+    }
+
+    case 'explicit_total_only': {
+      // Policy check: total_deductions must come from an explicit document line.
+      // If absent → null is correct (must not be inferred from individual fields).
+      // If present → must be a non-negative numeric value (proves explicit extraction).
+      const total = parseNum(resolve('totalDeductions')) ?? parseNum(resolve('totalDeductionsMeta'));
+      if (total == null) {
+        return { passed: true, actual: 'totalDeductions=null (correctly absent — not inferred)' };
+      }
+      if (total < 0) {
+        return {
+          passed: false,
+          actual: `totalDeductions=${total}`,
+          detail: `totalDeductions (${total}) is negative — explicit total lines must be non-negative`,
+        };
+      }
+      // Advisory: flag if total exactly matches the sum of a partial deduction set,
+      // which may indicate computation rather than explicit extraction.
+      const deductionKeys = ['withholdingTax', 'sss', 'philhealth', 'hdmfPagibig'];
+      const present = deductionKeys.map(k => parseNum(resolve(k))).filter(v => v != null);
+      if (present.length > 0 && present.length < deductionKeys.length) {
+        const partialSum = present.reduce((a, b) => a + b, 0);
+        if (Math.abs(total - partialSum) < 0.01) {
+          return {
+            passed: true,
+            actual: `totalDeductions=${total} — matches partial sum of ${present.length}/${deductionKeys.length} deductions; verify not computed`,
+          };
+        }
+      }
+      return { passed: true, actual: `totalDeductions=${total} (present — assumed explicitly extracted)` };
+    }
+
+    default:
+      return { skipped: true, skipReason: `unknown computed check type: "${check}"` };
+  }
+}
+
 async function runTestCase(tc) {
   console.log(`  Running ${tc.id} (${tc.type}) — ${tc.method} ${tc.endpoint}`);
 
@@ -430,7 +862,7 @@ async function runTestCase(tc) {
   let status, body;
 
   try {
-    const client = createPreviewClient(tc.endpoint);
+    const client = await createPreviewClient(tc.endpoint);
     const res = await client.request({
       method: tc.method,
       url: tc.endpoint,
@@ -444,6 +876,7 @@ async function runTestCase(tc) {
 
   const expectedStatus = tc.expected_status ?? 200;
   const assertionResults = [];
+  const warnings = [];
 
   if (status !== expectedStatus) {
     const snippet = JSON.stringify(body).slice(0, 300);
@@ -482,14 +915,27 @@ async function runTestCase(tc) {
           anyPassed = true; tried.push(`${alt.path} = ${JSON.stringify(value)} ✓`); break;
         }
       }
-      assertionResults.push({
-        path: assertion.anyOf.map(a => a.path).join(' | '),
-        description: assertion.description,
-        expected: 'any of: ' + assertion.anyOf.map(a => a.path).join(', '),
-        actual: tried.join('; '),
-        passed: anyPassed,
-      });
+      const anyOfPath = assertion.anyOf.map(a => a.path).join(' | ');
       if (!anyPassed) {
+        if (assertion.optional) {
+          warnings.push({ path: anyOfPath, description: assertion.description, message: `optional anyOf not satisfied — skipped (tried: ${tried.join('; ')})` });
+          assertionResults.push({
+            path: anyOfPath,
+            description: assertion.description,
+            expected: 'any of: ' + assertion.anyOf.map(a => a.path).join(', '),
+            actual: `(not found — optional, skipped): ${tried.join('; ')}`,
+            passed: true,
+            warning: true,
+          });
+          continue;
+        }
+        assertionResults.push({
+          path: anyOfPath,
+          description: assertion.description,
+          expected: 'any of: ' + assertion.anyOf.map(a => a.path).join(', '),
+          actual: tried.join('; '),
+          passed: false,
+        });
         return {
           passed: false,
           actualResult: `anyOf failed: ${tried.join('; ')}`,
@@ -499,6 +945,103 @@ async function runTestCase(tc) {
           responseBody: body,
         };
       }
+      assertionResults.push({
+        path: anyOfPath,
+        description: assertion.description,
+        expected: 'any of: ' + assertion.anyOf.map(a => a.path).join(', '),
+        actual: tried.join('; '),
+        passed: true,
+      });
+      continue;
+    }
+
+    // Completeness score assertion — weighted field-presence scoring per documentData item
+    if (assertion.assertionType === 'completenessScore') {
+      const result = runCompletenessAssertion(assertion, body);
+      const aPath  = 'completenessScore';
+
+      if (result.skipped) {
+        warnings.push({ path: aPath, description: assertion.description, message: result.skipReason });
+        assertionResults.push({
+          path:        aPath,
+          description: assertion.description,
+          expected:    `completeness ≥ ${assertion.thresholds?.pass ?? 90}/${assertion.maxScore ?? 100}`,
+          actual:      `(skipped: ${result.skipReason})`,
+          passed:      true,
+          warning:     true,
+        });
+        continue;
+      }
+
+      // Emit a parseable line for the runner agent to extract per-fixture scores
+      console.log(`  [completeness] ${tc.id} ${result.actual}`);
+
+      assertionResults.push({
+        path:        aPath,
+        description: assertion.description,
+        expected:    `completeness ≥ ${assertion.thresholds?.pass ?? 90}/${assertion.maxScore ?? 100}`,
+        actual:      result.actual,
+        passed:      result.passed,
+        warning:     result.warning || false,
+      });
+
+      if (result.warning) {
+        // WARN band: score >= 75 but < 90 — pass the test, note the warning
+        warnings.push({
+          path:        aPath,
+          description: assertion.description,
+          message:     `Completeness score ${result.score}/${result.maxScore} (${result.statusLabel}) — missing optional: ${result.missingOptional.join(', ') || 'none'}`,
+        });
+        continue;
+      }
+
+      if (!result.passed) {
+        // FAIL band: score < 75 — hard fail
+        return {
+          passed:           false,
+          actualResult:     `Completeness score too low: ${result.actual}`,
+          curlCmd,
+          failedAssertions: result.detail,
+          assertionResults,
+          responseBody:     body,
+        };
+      }
+      continue;
+    }
+
+    // Computed (cross-field) assertion — evaluates mathematical relationships
+    if (assertion.assertionType === 'computed') {
+      const result = runComputedAssertion(assertion, body);
+      const aPath  = `computed:${assertion.check}`;
+      if (result.skipped) {
+        warnings.push({ path: aPath, description: assertion.description, message: result.skipReason });
+        assertionResults.push({
+          path:        aPath,
+          description: assertion.description,
+          expected:    assertion.description,
+          actual:      `(skipped: ${result.skipReason})`,
+          passed:      true,
+          warning:     true,
+        });
+        continue;
+      }
+      assertionResults.push({
+        path:        aPath,
+        description: assertion.description,
+        expected:    assertion.description,
+        actual:      result.actual,
+        passed:      result.passed,
+      });
+      if (!result.passed) {
+        return {
+          passed:           false,
+          actualResult:     `Computed check failed: ${assertion.description}`,
+          curlCmd,
+          failedAssertions: `Computed assertion: ${assertion.description}\n${result.detail}`,
+          assertionResults,
+          responseBody:     body,
+        };
+      }
       continue;
     }
 
@@ -506,6 +1049,19 @@ async function runTestCase(tc) {
     try {
       value = resolvePath(body, assertion.path);
     } catch {
+      // Field not found in response
+      if (assertion.optional) {
+        warnings.push({ path: assertion.path, description: assertion.description, message: 'optional field not found — skipped' });
+        assertionResults.push({
+          path: assertion.path,
+          description: assertion.description,
+          expected: assertion.pattern ?? '(exists)',
+          actual: '(not found — optional, skipped)',
+          passed: true,
+          warning: true,
+        });
+        continue;
+      }
       assertionResults.push({
         path: assertion.path,
         description: assertion.description,
@@ -522,6 +1078,54 @@ async function runTestCase(tc) {
         responseBody: body,
       };
     }
+    // Optional field present but null — treat same as missing
+    if (value == null && assertion.optional) {
+      warnings.push({ path: assertion.path, description: assertion.description, message: 'optional field is null — skipped' });
+      assertionResults.push({
+        path: assertion.path,
+        description: assertion.description,
+        expected: assertion.pattern ?? '(exists)',
+        actual: '(null — optional, skipped)',
+        passed: true,
+        warning: true,
+      });
+      continue;
+    }
+    // Type assertion: structural check that doesn't rely on regex stringification
+    if (assertion.assertionType === 'type') {
+      const expected = assertion.expectedType;
+      const isArr   = Array.isArray(value);
+      const rawType = isArr ? 'array' : (value === null ? 'null' : typeof value);
+      let typePassed = false;
+
+      if      (expected === 'array')   typePassed = isArr && value.length > 0;
+      else if (expected === 'object')  typePassed = value !== null && !isArr && typeof value === 'object';
+      else if (expected === 'number')  typePassed = value !== null && (typeof value === 'number' || (!isNaN(parseFloat(value)) && isFinite(value)));
+      else if (expected === 'boolean') typePassed = typeof value === 'boolean' || value === 'true' || value === 'false';
+      else if (expected === 'string')  typePassed = typeof value === 'string' && value.length > 0;
+      else                             typePassed = value != null;
+
+      const typeDisplay = isArr ? `array[${value.length}]` : rawType;
+      assertionResults.push({
+        path: assertion.path,
+        description: assertion.description,
+        expected: `type:${expected}`,
+        actual: typeDisplay,
+        passed: typePassed,
+      });
+      if (!typePassed) {
+        return {
+          passed: false,
+          actualResult: `\`${assertion.path}\` expected type ${expected}, got ${typeDisplay}`,
+          curlCmd,
+          failedAssertions: `Assertion: \`${assertion.description}\`\nPath: \`${assertion.path}\`\nExpected type: ${expected}\nActual type: ${typeDisplay}`,
+          assertionResults,
+          responseBody: body,
+        };
+      }
+      continue;
+    }
+
     if (assertion.pattern) {
       // Strip (?i) inline flag (not supported in JS) and use 'i' flag instead
       const hasInlineIgnoreCase = assertion.pattern.includes('(?i)');
@@ -562,7 +1166,9 @@ async function runTestCase(tc) {
     }
   }
 
-  return { passed: true, actualResult: `HTTP ${status} — all assertions passed`, curlCmd, failedAssertions: null, assertionResults, responseBody: body };
+  const warnCount = warnings.length;
+  const warnNote  = warnCount ? ` (${warnCount} warning${warnCount > 1 ? 's' : ''}: optional fields not found)` : '';
+  return { passed: true, actualResult: `HTTP ${status} — all assertions passed${warnNote}`, curlCmd, failedAssertions: null, assertionResults, responseBody: body, warnings };
 }
 
 // ── Step 4b: Run batch test cases ────────────────────────────────────────────
@@ -600,7 +1206,8 @@ async function pollWebhookCallbacks(baselineCount, expectedCount, applicationId,
 async function decryptCallback(rawBody) {
   const res = await axios.post(DECRYPT_URL, rawBody, {
     headers: {
-      Authorization: `Bearer ${getIapToken()}`,
+      Authorization: `Bearer ${await getIapBearerToken()}`,
+      ...(USE_IAP && IAP_CLIENT_ID ? { 'Proxy-Authorization': `Bearer ${await getGoogleIdToken(IAP_CLIENT_ID)}` } : {}),
       'Content-Type': 'text/plain',
     },
     validateStatus: () => true,
@@ -621,102 +1228,688 @@ function assertField(obj, path, label) {
   }
 }
 
+/**
+ * Parse a numeric amount that may be a number, a formatted string like "1,234.56",
+ * or a negative string like "-500.00". Returns NaN for non-numeric values.
+ */
+function parseNumericAmount(val) {
+  if (val == null) return NaN;
+  if (typeof val === 'number') return val;
+  const cleaned = String(val).replace(/[^0-9.\-]/g, '');
+  return cleaned ? parseFloat(cleaned) : NaN;
+}
+
+/**
+ * Deep validator for BankStatement / GcashTransactionHistory document-level callbacks.
+ * Returns { checks, passed, allErrors }.
+ *
+ * checks = {
+ *   schemaValidation:    { passed, errors[] }
+ *   structureValidation: { passed, errors[] }
+ *   keyFieldsMatched:    { passed, errors[] }
+ *   contentValidation:   { passed, errors[] }
+ * }
+ */
+function validateBankStatementDocCallback(decrypted) {
+  const checks = {
+    schemaValidation:   { passed: true, errors: [] },
+    structureValidation: { passed: true, errors: [] },
+    keyFieldsMatched:   { passed: true, errors: [] },
+    contentValidation:  { passed: true, errors: [] },
+  };
+
+  // ── Schema validation ─────────────────────────────────────────────────────
+  const schemaRequired = ['applicationId', 'submissionId', 'documentId', 'publicUserId', 'status', 'documentType'];
+  for (const f of schemaRequired) {
+    if (decrypted[f] == null) {
+      checks.schemaValidation.errors.push(`required field absent: ${f}`);
+    } else if (typeof decrypted[f] !== 'string') {
+      checks.schemaValidation.errors.push(`${f} must be string, got ${typeof decrypted[f]}`);
+    }
+  }
+  checks.schemaValidation.passed = checks.schemaValidation.errors.length === 0;
+
+  // ── Structure validation ──────────────────────────────────────────────────
+  if (decrypted.status !== 'COMPLETED') {
+    checks.structureValidation.errors.push(`status="${decrypted.status}", expected COMPLETED`);
+  }
+  const docType = decrypted.documentType ?? '';
+  const isGCash = docType === 'GcashTransactionHistory' || docType === 'GCashTransactionHistory';
+  const isBankStatementType = docType === 'BankStatement' || docType === 'BANK_STATEMENT';
+  if (!isBankStatementType && !isGCash) {
+    checks.structureValidation.errors.push(`documentType="${docType}", expected BANK_STATEMENT or BankStatement`);
+  }
+  if (!decrypted.documentClassification) {
+    checks.structureValidation.errors.push('documentClassification is missing or empty');
+  }
+
+  const ocr = decrypted.ocrResult;
+  if (!ocr || typeof ocr !== 'object') {
+    checks.structureValidation.errors.push('ocrResult is missing or not an object');
+  } else {
+    for (const section of ['fraudChecks', 'qualityCheck', 'completenessCheck']) {
+      if (!ocr[section] || typeof ocr[section] !== 'object') {
+        checks.structureValidation.errors.push(`ocrResult.${section} is missing or not an object`);
+      }
+    }
+  }
+  checks.structureValidation.passed = checks.structureValidation.errors.length === 0;
+
+  // ── Decision-threshold gating ─────────────────────────────────────────────
+  // Extract document-level scores to decide validation depth.
+  const qualityScore      = parseNumericAmount(ocr?.qualityCheck?.overall_score  ?? decrypted.qualityScore);
+  const completenessScore = parseNumericAmount(ocr?.completenessCheck?.completeness_score ?? decrypted.completenessScore);
+  const authenticityScore = parseNumericAmount(decrypted.authenticityScore ?? ocr?.authenticityScore);
+
+  const QUALITY_THRESHOLD      = 60;
+  const COMPLETENESS_THRESHOLD = 80;
+  const AUTHENTICITY_THRESHOLD = 70;
+
+  const hasQuality      = !isNaN(qualityScore);
+  const hasCompleteness = !isNaN(completenessScore);
+  const hasAuthenticity = !isNaN(authenticityScore);
+
+  const lowQuality        = hasQuality && qualityScore < QUALITY_THRESHOLD;
+  const lowCompleteness   = hasCompleteness && completenessScore < COMPLETENESS_THRESHOLD;
+  const lowAuthenticity   = hasAuthenticity && authenticityScore < AUTHENTICITY_THRESHOLD;
+  const allScoresPass     = (!hasQuality || qualityScore >= QUALITY_THRESHOLD)
+                         && (!hasCompleteness || completenessScore >= COMPLETENESS_THRESHOLD)
+                         && (!hasAuthenticity || authenticityScore >= AUTHENTICITY_THRESHOLD);
+
+  // Attach score metadata so callers (cross-validation) can read gating decisions
+  const scoreGating = {
+    qualityScore:      hasQuality      ? qualityScore      : null,
+    completenessScore: hasCompleteness ? completenessScore : null,
+    authenticityScore: hasAuthenticity ? authenticityScore : null,
+    decision: 'FULL_VALIDATION', // default
+  };
+
+  if (lowQuality) {
+    scoreGating.decision = 'ABORTED_LOW_QUALITY';
+    console.log(`    ⚠ quality=${qualityScore} < ${QUALITY_THRESHOLD} — ABORTED_LOW_QUALITY (docId=${decrypted.documentId})`);
+    checks.contentValidation.passed = true;
+    checks.contentValidation.errors = [`ABORTED_LOW_QUALITY: quality=${qualityScore} < ${QUALITY_THRESHOLD} — OCR data, fraud checks, transactions, and app-level field validation skipped`];
+    // Key fields: still check error fields and timestamps
+    for (const f of ['error', 'errorMessage', 'errorCode', 'failureReason']) {
+      if (decrypted[f] != null) {
+        checks.keyFieldsMatched.errors.push(`unexpected error field present: ${f}="${decrypted[f]}"`);
+      }
+    }
+    for (const f of ['processedAt', 'createdAt', 'updatedAt', 'completedAt']) {
+      if (decrypted[f] != null && isNaN(Date.parse(decrypted[f]))) {
+        checks.keyFieldsMatched.errors.push(`invalid timestamp: ${f}="${decrypted[f]}"`);
+      }
+    }
+    checks.keyFieldsMatched.passed = checks.keyFieldsMatched.errors.length === 0;
+    const allErrors = Object.values(checks).flatMap(c => c.errors);
+    return { checks, passed: allErrors.filter(e => !e.startsWith('ABORTED_LOW_QUALITY')).length === 0, allErrors, scoreGating };
+  }
+
+  if (lowCompleteness || lowAuthenticity) {
+    scoreGating.decision = 'DOC_LEVEL_ONLY';
+    const reasons = [];
+    if (lowCompleteness) reasons.push(`completeness=${completenessScore} < ${COMPLETENESS_THRESHOLD}`);
+    if (lowAuthenticity) reasons.push(`authenticity=${authenticityScore} < ${AUTHENTICITY_THRESHOLD}`);
+    console.log(`    ⚠ ${reasons.join(', ')} — DOC_LEVEL_ONLY (docId=${decrypted.documentId})`);
+  }
+
+  // ── Key fields matched ────────────────────────────────────────────────────
+  for (const f of ['error', 'errorMessage', 'errorCode', 'failureReason']) {
+    if (decrypted[f] != null) {
+      checks.keyFieldsMatched.errors.push(`unexpected error field present: ${f}="${decrypted[f]}"`);
+    }
+  }
+  for (const f of ['processedAt', 'createdAt', 'updatedAt', 'completedAt']) {
+    if (decrypted[f] != null && isNaN(Date.parse(decrypted[f]))) {
+      checks.keyFieldsMatched.errors.push(`invalid timestamp: ${f}="${decrypted[f]}"`);
+    }
+  }
+  checks.keyFieldsMatched.passed = checks.keyFieldsMatched.errors.length === 0;
+
+  // ── Content validation ────────────────────────────────────────────────────
+  if (!isFraudFlagged(decrypted) && ocr && typeof ocr === 'object') {
+    // Structure checks that require ocrResult sub-objects
+    if (!ocr.documentData || typeof ocr.documentData !== 'object') {
+      checks.structureValidation.errors.push('ocrResult.documentData is missing or not an object');
+      checks.structureValidation.passed = false;
+    }
+    const txAtRoot = Array.isArray(ocr.transactions) ? ocr.transactions : null;
+    const txAtData = ocr.documentData && Array.isArray(ocr.documentData.transactions)
+      ? ocr.documentData.transactions
+      : null;
+    if (!txAtRoot && !txAtData) {
+      checks.structureValidation.errors.push(
+        'ocrResult.transactions (or ocrResult.documentData.transactions) is missing or not an array'
+      );
+      checks.structureValidation.passed = checks.structureValidation.errors.length === 0;
+    }
+
+    const docData = ocr.documentData;
+    const transactions = (Array.isArray(ocr.transactions) ? ocr.transactions : null)
+                      ?? (docData && Array.isArray(docData.transactions) ? docData.transactions : null);
+
+    if (!transactions || transactions.length === 0) {
+      checks.contentValidation.errors.push('transactions array is empty or missing');
+    } else {
+      // Per-transaction field checks
+      for (let i = 0; i < transactions.length; i++) {
+        const tx = transactions[i];
+        if (!tx.postingDate) {
+          checks.contentValidation.errors.push(`transactions[${i}] missing postingDate`);
+        }
+        if (!tx.transactionDescription) {
+          checks.contentValidation.errors.push(`transactions[${i}] missing transactionDescription`);
+        }
+        if (tx.debitAmount == null && tx.creditAmount == null) {
+          checks.contentValidation.errors.push(`transactions[${i}] missing both debitAmount and creditAmount`);
+        }
+      }
+
+      // Arithmetic cross-validation: calculated_debits / calculated_credits
+      const calcDebitsRaw  = docData?.calculated_debits  ?? ocr.calculated_debits;
+      const calcCreditsRaw = docData?.calculated_credits ?? ocr.calculated_credits;
+      const summDebitsRaw  = docData?.summary_debits     ?? ocr.summary_debits;
+      const summCreditsRaw = docData?.summary_credits    ?? ocr.summary_credits;
+
+      if (calcDebitsRaw != null) {
+        const calcDebits = parseNumericAmount(calcDebitsRaw);
+        if (isNaN(calcDebits)) {
+          checks.contentValidation.errors.push(`calculated_debits="${calcDebitsRaw}" is not numeric`);
+        } else {
+          const sumDebits = transactions.reduce((acc, tx) => {
+            const v = parseNumericAmount(tx.debitAmount ?? 0);
+            return acc + (isNaN(v) ? 0 : v);
+          }, 0);
+          if (Math.abs(calcDebits - sumDebits) > 0.02) {
+            checks.contentValidation.errors.push(
+              `calculated_debits (${calcDebits}) does not match sum of debitAmounts (${sumDebits.toFixed(2)})`
+            );
+          }
+          if (summDebitsRaw != null) {
+            const summDebits = parseNumericAmount(summDebitsRaw);
+            if (!isNaN(summDebits) && Math.abs(summDebits - calcDebits) > 0.02) {
+              checks.contentValidation.errors.push(
+                `summary_debits (${summDebits}) does not match calculated_debits (${calcDebits})`
+              );
+            }
+          }
+        }
+      }
+
+      if (calcCreditsRaw != null) {
+        const calcCredits = parseNumericAmount(calcCreditsRaw);
+        if (isNaN(calcCredits)) {
+          checks.contentValidation.errors.push(`calculated_credits="${calcCreditsRaw}" is not numeric`);
+        } else {
+          const sumCredits = transactions.reduce((acc, tx) => {
+            const v = parseNumericAmount(tx.creditAmount ?? 0);
+            return acc + (isNaN(v) ? 0 : v);
+          }, 0);
+          if (Math.abs(calcCredits - sumCredits) > 0.02) {
+            checks.contentValidation.errors.push(
+              `calculated_credits (${calcCredits}) does not match sum of creditAmounts (${sumCredits.toFixed(2)})`
+            );
+          }
+          if (summCreditsRaw != null) {
+            const summCredits = parseNumericAmount(summCreditsRaw);
+            if (!isNaN(summCredits) && Math.abs(summCredits - calcCredits) > 0.02) {
+              checks.contentValidation.errors.push(
+                `summary_credits (${summCredits}) does not match calculated_credits (${calcCredits})`
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // Fraud/quality/completeness sections: check actual API response fields
+    if (ocr.fraudChecks && typeof ocr.fraudChecks === 'object') {
+      for (const f of ['gs_isFraudulent_bankstatement', 'gs_overallFraudScore_bankstatement', 'gs_fraudCheckStatus_bankstatement']) {
+        if (!(f in ocr.fraudChecks)) {
+          checks.contentValidation.errors.push(`ocrResult.fraudChecks missing ${f}`);
+        }
+      }
+    }
+    if (ocr.qualityCheck && typeof ocr.qualityCheck === 'object') {
+      if (Object.keys(ocr.qualityCheck).length === 0) {
+        checks.contentValidation.errors.push('ocrResult.qualityCheck is an empty object');
+      }
+    }
+    if (ocr.completenessCheck && typeof ocr.completenessCheck === 'object') {
+      if (Object.keys(ocr.completenessCheck).length === 0) {
+        checks.contentValidation.errors.push('ocrResult.completenessCheck is an empty object');
+      }
+    }
+  }
+  checks.contentValidation.passed = checks.contentValidation.errors.length === 0;
+
+  const allErrors = Object.values(checks).flatMap(c => c.errors);
+  return { checks, passed: allErrors.length === 0, allErrors, scoreGating };
+}
+
 function isFraudFlagged(decrypted) {
   try {
-    const flag = resolvePath(decrypted, 'ocrResult.fraudChecks.overall_fraud_flag');
+    const flag = resolvePath(decrypted, 'ocrResult.fraudChecks.gs_isFraudulent_bankstatement');
     return flag === true || flag === 'true';
   } catch { return false; }
 }
 
-function validateDocumentCallback(decrypted) {
-  const coreFields = [
-    'applicationId', 'submissionId', 'documentId', 'publicUserId',
-    'status', 'documentType', 'documentClassification',
-  ];
-  const errors = coreFields.map(f => assertField(decrypted, f, 'doc-callback')).filter(Boolean);
+/**
+ * Validate a document-level callback. Returns { checks, passed, allErrors }.
+ * BankStatement / GcashTransactionHistory routes to the deep validator.
+ * Other types use a lightweight structural check for backward compat.
+ * context.expectedApplicationId is used for cross-run ID matching.
+ */
+function validateDocumentCallback(decrypted, context = {}) {
+  const docType = decrypted?.documentType ?? '';
+  const isBankStatement = (
+    docType === 'BankStatement' ||
+    docType === 'BANK_STATEMENT' ||
+    docType === 'GcashTransactionHistory' ||
+    docType === 'GCashTransactionHistory'
+  );
 
-  // If the document is fraud-flagged, skip documentData/field assertions
-  // since fraud docs may not parse fully.
   if (isFraudFlagged(decrypted)) {
     console.log(`    ⚠ Fraud-flagged document (docId=${decrypted.documentId}) — skipping parse-field assertions`);
-    return errors;
+    return {
+      checks: {
+        schemaValidation:   { passed: true, errors: [] },
+        structureValidation: { passed: true, errors: [] },
+        keyFieldsMatched:   { passed: true, errors: [] },
+        contentValidation:  { passed: true, errors: ['skipped — fraud-flagged document'] },
+      },
+      passed: true,
+      allErrors: [],
+    };
   }
 
-  // If ocrResult is entirely null/missing (e.g. gateway processing failed),
-  // report it once and skip type-specific field checks.
-  const ocrExists = assertField(decrypted, 'ocrResult', 'doc-callback');
-  if (ocrExists) {
-    errors.push(ocrExists);
-    return errors;
+  if (isBankStatement) {
+    const result = validateBankStatementDocCallback(decrypted);
+    // General: applicationId must match the batch submission
+    if (context.expectedApplicationId && decrypted.applicationId !== context.expectedApplicationId) {
+      const err = `applicationId mismatch: expected ${context.expectedApplicationId}, got ${decrypted.applicationId}`;
+      result.checks.keyFieldsMatched.errors.push(err);
+      result.checks.keyFieldsMatched.passed = false;
+      result.allErrors.push(err);
+      result.passed = false;
+    }
+    return result;
   }
 
-  const docType = decrypted.documentType ?? '';
+  // ── Non-BankStatement: lightweight structural check ───────────────────────
+  const coreFields = ['applicationId', 'submissionId', 'documentId', 'publicUserId', 'status', 'documentType', 'documentClassification'];
+  const structErrors = coreFields.map(f => assertField(decrypted, f, 'doc-callback')).filter(Boolean);
 
-  // Type-specific document-level assertions
-  if (docType === 'ElectricUtilityBillingStatement') {
-    errors.push(...[
-      'ocrResult.documentData.bill_period_start',
-      'ocrResult.documentData.bill_period_end',
-    ].map(f => assertField(decrypted, f, 'doc-callback')).filter(Boolean));
-  } else if (docType === 'Payslip') {
-    // At least one of gross_pay or net_pay should exist
-    const gross = assertField(decrypted, 'ocrResult.documentData.gross_pay', 'doc-callback');
-    const net   = assertField(decrypted, 'ocrResult.documentData.net_pay', 'doc-callback');
-    if (gross && net) errors.push(`doc-callback: neither ocrResult.documentData.gross_pay nor net_pay found`);
-  } else if (docType === 'BankStatement' || docType === 'GcashTransactionHistory' || docType === 'GCashTransactionHistory') {
-    errors.push(...[
-      'ocrResult.documentData', 'ocrResult.transactions',
-      'ocrResult.fraudChecks', 'ocrResult.qualityCheck',
-      'ocrResult.completenessCheck',
-    ].map(f => assertField(decrypted, f, 'doc-callback')).filter(Boolean));
-  } else {
-    // All other types — just assert ocrResult exists
-    errors.push(...['ocrResult'].map(f => assertField(decrypted, f, 'doc-callback')).filter(Boolean));
+  const ocrMissing = assertField(decrypted, 'ocrResult', 'doc-callback');
+  if (ocrMissing) structErrors.push(ocrMissing);
+
+  const contentErrors = [];
+  if (!ocrMissing) {
+    if (docType === 'ElectricUtilityBillingStatement') {
+      contentErrors.push(
+        ...['ocrResult.documentData.bill_period_start', 'ocrResult.documentData.bill_period_end']
+          .map(f => assertField(decrypted, f, 'doc-callback')).filter(Boolean)
+      );
+    } else if (docType === 'Payslip') {
+      const gross = assertField(decrypted, 'ocrResult.documentData.gross_pay', 'doc-callback');
+      const net   = assertField(decrypted, 'ocrResult.documentData.net_pay', 'doc-callback');
+      if (gross && net) contentErrors.push('doc-callback: neither ocrResult.documentData.gross_pay nor net_pay found');
+    }
   }
 
-  return errors;
+  const keyErrors = [];
+  if (context.expectedApplicationId && decrypted.applicationId !== context.expectedApplicationId) {
+    keyErrors.push(`doc-callback: applicationId mismatch: expected ${context.expectedApplicationId}, got ${decrypted.applicationId}`);
+  }
+  // No unexpected error fields
+  for (const f of ['error', 'errorMessage', 'errorCode', 'failureReason']) {
+    if (decrypted[f] != null) keyErrors.push(`doc-callback: unexpected error field: ${f}="${decrypted[f]}"`);
+  }
+
+  const allErrors = [...structErrors, ...keyErrors, ...contentErrors];
+  return {
+    checks: {
+      schemaValidation:   { passed: true, errors: [] },
+      structureValidation: { passed: structErrors.length === 0, errors: structErrors },
+      keyFieldsMatched:   { passed: keyErrors.length === 0, errors: keyErrors },
+      contentValidation:  { passed: contentErrors.length === 0, errors: contentErrors },
+    },
+    passed: allErrors.length === 0,
+    allErrors,
+  };
 }
 
-function validateApplicationCallback(decrypted) {
-  const topFields = ['applicationId', 'submissionId', 'publicUserId', 'status'];
-  const errors = topFields.map(f => assertField(decrypted, f, 'app-callback')).filter(Boolean);
+/**
+ * Validate an application-level callback. Returns { checks, passed, allErrors }.
+ * context.expectedApplicationId is used for cross-run ID matching.
+ */
+function validateApplicationCallback(decrypted, context = {}) {
+  const checks = {
+    schemaValidation:   { passed: true, errors: [] },
+    structureValidation: { passed: true, errors: [] },
+    keyFieldsMatched:   { passed: true, errors: [] },
+    contentValidation:  { passed: true, errors: [] },
+  };
 
-  // Determine which document types are in this batch to pick the right computed-field assertions
+  // ── Schema validation ─────────────────────────────────────────────────────
+  const schemaRequired = ['applicationId', 'submissionId', 'publicUserId', 'status'];
+  for (const f of schemaRequired) {
+    if (decrypted[f] == null) {
+      checks.schemaValidation.errors.push(`required field absent: ${f}`);
+    } else if (typeof decrypted[f] !== 'string') {
+      checks.schemaValidation.errors.push(`${f} must be string, got ${typeof decrypted[f]}`);
+    }
+  }
+  checks.schemaValidation.passed = checks.schemaValidation.errors.length === 0;
+
+  // ── Determine doc types from ocrResult.documents ──────────────────────────
   const documents = [];
   try {
     const docs = resolvePath(decrypted, 'ocrResult.documents');
     if (Array.isArray(docs)) documents.push(...docs);
-  } catch { /* no documents array — fall through */ }
-
+  } catch { /* ignore */ }
   const docTypes = new Set(documents.map(d => d.documentType).filter(Boolean));
-  // Also check top-level ocrResult for single-doc batches
   try {
     const dt = resolvePath(decrypted, 'ocrResult.documentType');
     if (dt) docTypes.add(dt);
   } catch { /* ignore */ }
 
-  const hasBankStatement = docTypes.has('BankStatement');
+  const hasBankStatement = docTypes.has('BankStatement') || docTypes.has('BANK_STATEMENT');
   const hasGCash = docTypes.has('GcashTransactionHistory') || docTypes.has('GCashTransactionHistory');
 
+  // ── Structure validation ──────────────────────────────────────────────────
   if (hasBankStatement) {
-    errors.push(...[
-      'ocrResult.computedFields.BANK_STATEMENT.gs_180days_valid_bankstatement',
-      'ocrResult.computedFields.BANK_STATEMENT.gs_90days_consec_bankstatement',
-      'ocrResult.computedFields.BANK_STATEMENT.gs_totaldebit_bankstatement',
-      'ocrResult.computedFields.BANK_STATEMENT.gs_totalcredit_bankstatement',
-      'ocrResult.computedFields.BANK_STATEMENT.gs_inferredincome_bankstatement',
-      'ocrResult.computedFields.crossCheckFindings',
-    ].map(f => assertField(decrypted, f, 'app-callback')).filter(Boolean));
+    const cf = decrypted.ocrResult?.computedFields;
+    if (!cf) {
+      checks.structureValidation.errors.push('missing ocrResult.computedFields');
+    } else {
+      if (!cf.BANK_STATEMENT) {
+        checks.structureValidation.errors.push('missing ocrResult.computedFields.BANK_STATEMENT');
+      } else {
+        for (const f of [
+          'gs_180days_valid_bankstatement',
+          'gs_90days_consec_bankstatement',
+          'gs_totaldebit_bankstatement',
+          'gs_totalcredit_bankstatement',
+          'gs_inferredincome_bankstatement',
+        ]) {
+          if (cf.BANK_STATEMENT[f] == null) {
+            checks.structureValidation.errors.push(`missing ocrResult.computedFields.BANK_STATEMENT.${f}`);
+          }
+        }
+      }
+      if (cf.crossCheckFindings == null) {
+        checks.structureValidation.errors.push('missing ocrResult.computedFields.crossCheckFindings');
+      }
+    }
   } else if (hasGCash) {
-    errors.push(...[
-      'ocrResult.computedFields.BANK_STATEMENT.gs_180days_valid_bankstatement',
-      'ocrResult.computedFields.BANK_STATEMENT.gs_90days_consec_bankstatement',
-    ].map(f => assertField(decrypted, f, 'app-callback')).filter(Boolean));
+    const cf = decrypted.ocrResult?.computedFields;
+    if (!cf) {
+      checks.structureValidation.errors.push('missing ocrResult.computedFields');
+    } else if (!cf.BANK_STATEMENT) {
+      checks.structureValidation.errors.push('missing ocrResult.computedFields.BANK_STATEMENT');
+    } else {
+      for (const f of ['gs_180days_valid_bankstatement', 'gs_90days_consec_bankstatement']) {
+        if (cf.BANK_STATEMENT[f] == null) {
+          checks.structureValidation.errors.push(`missing ocrResult.computedFields.BANK_STATEMENT.${f}`);
+        }
+      }
+    }
   }
-  // All other document types (ElectricUtilityBillingStatement, Payslip, etc.)
-  // — no computed-field assertions at the application level.
+  checks.structureValidation.passed = checks.structureValidation.errors.length === 0;
 
-  return errors;
+  // ── Key fields matched ────────────────────────────────────────────────────
+  if (context.expectedApplicationId && decrypted.applicationId !== context.expectedApplicationId) {
+    checks.keyFieldsMatched.errors.push(
+      `applicationId mismatch: expected ${context.expectedApplicationId}, got ${decrypted.applicationId}`
+    );
+  }
+  for (const f of ['error', 'errorMessage', 'errorCode', 'failureReason']) {
+    if (decrypted[f] != null) {
+      checks.keyFieldsMatched.errors.push(`unexpected error field: ${f}="${decrypted[f]}"`);
+    }
+  }
+  for (const f of ['processedAt', 'createdAt', 'updatedAt', 'completedAt']) {
+    if (decrypted[f] != null && isNaN(Date.parse(decrypted[f]))) {
+      checks.keyFieldsMatched.errors.push(`invalid timestamp: ${f}="${decrypted[f]}"`);
+    }
+  }
+  checks.keyFieldsMatched.passed = checks.keyFieldsMatched.errors.length === 0;
+
+  // ── Content validation (BANK_STATEMENT) ──────────────────────────────────
+  if (hasBankStatement && decrypted.ocrResult?.computedFields?.BANK_STATEMENT) {
+    const bs = decrypted.ocrResult.computedFields.BANK_STATEMENT;
+    if (bs.available !== true) {
+      checks.contentValidation.errors.push(
+        `computedFields.BANK_STATEMENT.available="${bs.available}", expected true`
+      );
+    }
+    for (const f of ['gs_totaldebit_bankstatement', 'gs_totalcredit_bankstatement']) {
+      if (bs[f] != null && isNaN(parseNumericAmount(bs[f]))) {
+        checks.contentValidation.errors.push(
+          `computedFields.BANK_STATEMENT.${f}="${bs[f]}" is not numeric`
+        );
+      }
+    }
+    const ccf = decrypted.ocrResult.computedFields.crossCheckFindings;
+    if (ccf != null && typeof ccf === 'object' && !Array.isArray(ccf) && Object.keys(ccf).length === 0) {
+      checks.contentValidation.errors.push('computedFields.crossCheckFindings is an empty object');
+    }
+  }
+  checks.contentValidation.passed = checks.contentValidation.errors.length === 0;
+
+  const allErrors = Object.values(checks).flatMap(c => c.errors);
+  return { checks, passed: allErrors.length === 0, allErrors };
+}
+
+/**
+ * Compute a confidence score and QA summary for an application-level callback report.
+ *
+ * Deductions from base score of 100:
+ *   -10 per failed check (FAIL)
+ *   -5  per WARNING entry in crossValidation (e.g. summary_* mismatch)
+ *   -2  per SKIPPED_OPTIONAL entry in crossValidation
+ *   No deduction when crossValidation is absent (not applicable — only 1 BankStatement doc)
+ *
+ * Returns a qaSummary object ready to embed in the report JSON.
+ */
+function computeApplicationQaSummary(report) {
+  const { checks, crossValidation } = report;
+
+  const safeLen = (arr) => Array.isArray(arr) ? arr.length : 0;
+
+  let failCount =
+    safeLen(checks.schemaValidation?.errors)   +
+    safeLen(checks.structureValidation?.errors) +
+    safeLen(checks.keyFieldsMatched?.errors)    +
+    safeLen(checks.contentValidation?.errors);
+
+  let warningCount = 0;
+  let skippedOptionalCount = 0;
+  if (crossValidation) {
+    for (const entry of Object.values(crossValidation)) {
+      if (entry.status === 'FAIL')             failCount++;
+      if (entry.status === 'WARNING')          warningCount++;
+      if (entry.status === 'SKIPPED_OPTIONAL') skippedOptionalCount++;
+    }
+  }
+
+  const confidence = Math.max(0, 100 - failCount * 10 - warningCount * 5 - skippedOptionalCount * 2);
+  const result     = failCount === 0 ? 'PASS' : 'FAIL';
+
+  return { result, confidence, failCount, warningCount, skippedOptionalCount };
+}
+
+/**
+ * Group bank statement doc totals by account identity for cross-validation scoping.
+ *
+ * Grouping priority:
+ *   1. accountNumber (primary — most specific)
+ *   2. accountHolderName (fallback when accountNumber is absent)
+ *   3. bankName (last resort — grouped with docs sharing the same bank)
+ *
+ * Docs with no identity fields at all are placed in a catch-all group keyed '__unknown__'.
+ * Returns a Map<string, docTotals[]>. Only groups with 2+ docs are cross-validation eligible.
+ */
+function groupBankStatementsByAccount(bankStatementDocTotals) {
+  const groups = new Map();
+
+  for (const doc of bankStatementDocTotals) {
+    let key;
+    if (doc.accountNumber) {
+      key = `acct:${doc.accountNumber}`;
+    } else if (doc.accountHolderName) {
+      key = `holder:${doc.accountHolderName}`;
+    } else if (doc.bankName) {
+      key = `bank:${doc.bankName}`;
+    } else {
+      key = '__unknown__';
+    }
+
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(doc);
+  }
+
+  return groups;
+}
+
+/**
+ * Cross-validate BANK_STATEMENT document totals against application computedFields.
+ * Respects decision-threshold gating from doc-level scoreGating.
+ *
+ * A batch-upload can contain 1 or many documents — the API creates exactly 1
+ * applicationId per batch. crossValidation only runs when BOTH conditions are met:
+ *   1. The same applicationId has 2+ BankStatement documents in the same account group.
+ *   2. All documents in the group pass score-gating (no ABORTED_LOW_QUALITY or DOC_LEVEL_ONLY).
+ *
+ * Single-document batches: run normal doc + app callback validation only. No crossValidation.
+ *
+ * Mutates appReport (crossValidation, mismatchDetails, checks) and allErrors.
+ * Only sets appReport.crossValidation when validation actually runs.
+ */
+function crossValidateBankStatementTotals(bankStatementDocTotals, appDecrypted, appReport, allErrors) {
+  // Eligibility: need 2+ BankStatement docs to cross-validate totals
+  if (bankStatementDocTotals.length < 2) return;
+
+  // Score-gating: if any doc has degraded quality, skip silently
+  const hasAborted = bankStatementDocTotals.some(d => d.scoreGating?.decision === 'ABORTED_LOW_QUALITY');
+  const hasDocOnly = bankStatementDocTotals.some(d => d.scoreGating?.decision === 'DOC_LEVEL_ONLY');
+  if (hasAborted || hasDocOnly) {
+    const reasons = bankStatementDocTotals
+      .filter(d => d.scoreGating?.decision === 'ABORTED_LOW_QUALITY' || d.scoreGating?.decision === 'DOC_LEVEL_ONLY')
+      .map(d => `docId=${d.docId} gating=${d.scoreGating.decision}`);
+    console.log(`    ⚠ cross-validation skipped — score gating: ${reasons.join(', ')}`);
+    return;
+  }
+
+  const bs = appDecrypted.ocrResult?.computedFields?.BANK_STATEMENT;
+  const cv = {};
+
+  // Required: ALL docs must have valid numeric values. If any doc is missing, the sum is
+  // incomplete and the comparison is meaningless — treat as FAIL per business rules.
+  const hasCalcDebits  = bankStatementDocTotals.every(d => !isNaN(d.calculatedDebits));
+  const hasCalcCredits = bankStatementDocTotals.every(d => !isNaN(d.calculatedCredits));
+  const docTotalCalcDebits  = bankStatementDocTotals.reduce((s, d) => s + (isNaN(d.calculatedDebits)  ? 0 : d.calculatedDebits),  0);
+  const docTotalCalcCredits = bankStatementDocTotals.reduce((s, d) => s + (isNaN(d.calculatedCredits) ? 0 : d.calculatedCredits), 0);
+  const appDebits  = bs ? parseNumericAmount(bs.gs_totaldebit_bankstatement  ?? '') : NaN;
+  const appCredits = bs ? parseNumericAmount(bs.gs_totalcredit_bankstatement ?? '') : NaN;
+
+  // ── PRIMARY (REQUIRED): calculated_debits vs gs_totaldebit_bankstatement ──
+  if (!hasCalcDebits) {
+    const badDocs = bankStatementDocTotals.filter(d => isNaN(d.calculatedDebits)).map(d => d.docId).join(', ');
+    const msg = `cross_validation_debits: FAIL — calculated_debits missing or non-numeric for doc(s): ${badDocs} (required)`;
+    allErrors.push(msg);
+    appReport.checks.contentValidation.errors.push(msg);
+    appReport.checks.contentValidation.passed = false;
+    appReport.mismatchDetails.push(msg);
+    cv.debits = { status: 'FAIL', detail: msg };
+  } else if (!bs || isNaN(appDebits)) {
+    const reason = !bs ? 'application computedFields.BANK_STATEMENT absent' : 'application gs_totaldebit_bankstatement missing or non-numeric';
+    const msg = `cross_validation_debits: FAIL — ${reason} (required)`;
+    allErrors.push(msg);
+    appReport.checks.contentValidation.errors.push(msg);
+    appReport.checks.contentValidation.passed = false;
+    appReport.mismatchDetails.push(msg);
+    cv.debits = { status: 'FAIL', detail: msg };
+  } else {
+    const diff = Math.abs(appDebits - docTotalCalcDebits);
+    if (diff > 0.02) {
+      const msg = `cross-validation: gs_totaldebit_bankstatement (${appDebits}) !== sum(calculated_debits) (${docTotalCalcDebits.toFixed(2)}), diff=${diff.toFixed(2)}`;
+      allErrors.push(msg);
+      appReport.checks.contentValidation.errors.push(msg);
+      appReport.checks.contentValidation.passed = false;
+      appReport.mismatchDetails.push(`cross_validation_debits: doc_sum=${docTotalCalcDebits.toFixed(2)} app_total=${appDebits} diff=${diff.toFixed(2)}`);
+      cv.debits = { status: 'FAIL', detail: msg };
+    } else {
+      cv.debits = { status: 'PASS', detail: `matched within tolerance (diff=${diff.toFixed(2)})` };
+    }
+  }
+
+  // ── PRIMARY (REQUIRED): calculated_credits vs gs_totalcredit_bankstatement ──
+  if (!hasCalcCredits) {
+    const badDocs = bankStatementDocTotals.filter(d => isNaN(d.calculatedCredits)).map(d => d.docId).join(', ');
+    const msg = `cross_validation_credits: FAIL — calculated_credits missing or non-numeric for doc(s): ${badDocs} (required)`;
+    allErrors.push(msg);
+    appReport.checks.contentValidation.errors.push(msg);
+    appReport.checks.contentValidation.passed = false;
+    appReport.mismatchDetails.push(msg);
+    cv.credits = { status: 'FAIL', detail: msg };
+  } else if (!bs || isNaN(appCredits)) {
+    const reason = !bs ? 'application computedFields.BANK_STATEMENT absent' : 'application gs_totalcredit_bankstatement missing or non-numeric';
+    const msg = `cross_validation_credits: FAIL — ${reason} (required)`;
+    allErrors.push(msg);
+    appReport.checks.contentValidation.errors.push(msg);
+    appReport.checks.contentValidation.passed = false;
+    appReport.mismatchDetails.push(msg);
+    cv.credits = { status: 'FAIL', detail: msg };
+  } else {
+    const diff = Math.abs(appCredits - docTotalCalcCredits);
+    if (diff > 0.02) {
+      const msg = `cross-validation: gs_totalcredit_bankstatement (${appCredits}) !== sum(calculated_credits) (${docTotalCalcCredits.toFixed(2)}), diff=${diff.toFixed(2)}`;
+      allErrors.push(msg);
+      appReport.checks.contentValidation.errors.push(msg);
+      appReport.checks.contentValidation.passed = false;
+      appReport.mismatchDetails.push(`cross_validation_credits: doc_sum=${docTotalCalcCredits.toFixed(2)} app_total=${appCredits} diff=${diff.toFixed(2)}`);
+      cv.credits = { status: 'FAIL', detail: msg };
+    } else {
+      cv.credits = { status: 'PASS', detail: `matched within tolerance (diff=${diff.toFixed(2)})` };
+    }
+  }
+
+  // ── OPTIONAL: summary_debits / summary_credits vs calculated fields ───────
+  const hasSummDebits  = bankStatementDocTotals.some(d => !isNaN(d.summaryDebits));
+  const hasSummCredits = bankStatementDocTotals.some(d => !isNaN(d.summaryCredits));
+  const docTotalSummDebits  = bankStatementDocTotals.reduce((s, d) => s + (isNaN(d.summaryDebits)  ? 0 : d.summaryDebits),  0);
+  const docTotalSummCredits = bankStatementDocTotals.reduce((s, d) => s + (isNaN(d.summaryCredits) ? 0 : d.summaryCredits), 0);
+
+  if (!hasSummDebits) {
+    cv.summary_debits = { status: 'SKIPPED_OPTIONAL', detail: 'document summary_debits missing or non-numeric' };
+  } else if (hasCalcDebits) {
+    const diff = Math.abs(docTotalSummDebits - docTotalCalcDebits);
+    if (diff > 0.02) {
+      appReport.mismatchDetails.push(`cross_validation_summary_debits: WARNING — summary_debits (${docTotalSummDebits.toFixed(2)}) !== calculated_debits (${docTotalCalcDebits.toFixed(2)}), diff=${diff.toFixed(2)}`);
+      cv.summary_debits = { status: 'WARNING', detail: `summary_debits (${docTotalSummDebits.toFixed(2)}) !== calculated_debits (${docTotalCalcDebits.toFixed(2)}), diff=${diff.toFixed(2)}` };
+    } else {
+      cv.summary_debits = { status: 'PASS', detail: `matched within tolerance (diff=${diff.toFixed(2)})` };
+    }
+  }
+
+  if (!hasSummCredits) {
+    cv.summary_credits = { status: 'SKIPPED_OPTIONAL', detail: 'document summary_credits missing or non-numeric' };
+  } else if (hasCalcCredits) {
+    const diff = Math.abs(docTotalSummCredits - docTotalCalcCredits);
+    if (diff > 0.02) {
+      appReport.mismatchDetails.push(`cross_validation_summary_credits: WARNING — summary_credits (${docTotalSummCredits.toFixed(2)}) !== calculated_credits (${docTotalCalcCredits.toFixed(2)}), diff=${diff.toFixed(2)}`);
+      cv.summary_credits = { status: 'WARNING', detail: `summary_credits (${docTotalSummCredits.toFixed(2)}) !== calculated_credits (${docTotalCalcCredits.toFixed(2)}), diff=${diff.toFixed(2)}` };
+    } else {
+      cv.summary_credits = { status: 'PASS', detail: `matched within tolerance (diff=${diff.toFixed(2)})` };
+    }
+  }
+
+  // Only attach crossValidation when we actually produced results
+  if (Object.keys(cv).length > 0) {
+    appReport.crossValidation = cv;
+  }
 }
 
 async function runBatchTestCase(tc) {
@@ -776,13 +1969,18 @@ async function runBatchTestCase(tc) {
   // 2. POST to batch-upload
   let status, body;
   try {
+    const iapBearer = await getIapBearerToken();
+    const batchHeaders = {
+      Authorization: `Bearer ${iapBearer}`,
+      'X-Tenant-Token': VERIFYIQ_KEY,
+      'Content-Type': 'application/json',
+    };
+    if (USE_IAP && IAP_CLIENT_ID) {
+      batchHeaders['Proxy-Authorization'] = `Bearer ${await getGoogleIdToken(IAP_CLIENT_ID)}`;
+    }
     const client = axios.create({
       baseURL: PREVIEW_URL,
-      headers: {
-        Authorization: `Bearer ${getIapToken()}`,
-        'X-Tenant-Token': VERIFYIQ_KEY,
-        'Content-Type': 'application/json',
-      },
+      headers: batchHeaders,
       validateStatus: () => true,
     });
     const res = await client.post('/ai-gateway/batch-upload', payload);
@@ -822,39 +2020,233 @@ async function runBatchTestCase(tc) {
   }
 
   // 5. Decrypt and validate each callback
+  //    Group by applicationId — a batch upload may contain multiple applicationIds.
+  //    applicationId is the real validation boundary, not the batch container.
   const allErrors = [];
-  for (const cb of callbacks) {
+  const callbackReports = [];
+  // Per-applicationId grouping: { docIndices, appIndex, appDecrypted, bankStatementDocTotals }
+  const appGroups = new Map();
+
+  function getAppGroup(appId) {
+    if (!appGroups.has(appId)) {
+      appGroups.set(appId, { docIndices: [], appIndex: -1, appDecrypted: null, bankStatementDocTotals: [] });
+    }
+    return appGroups.get(appId);
+  }
+
+  for (let cbIdx = 0; cbIdx < callbacks.length; cbIdx++) {
+    const cb = callbacks[cbIdx];
     const rawBody = cb.content ?? cb.body ?? JSON.stringify(cb);
+
+    const report = {
+      index: cbIdx,
+      received: true,
+      type: 'unknown',
+      documentId: null,
+      applicationId: null,
+      decryptOk: false,
+      deliveryStatus: 'PENDING',
+      checks: {
+        schemaValidation:   { passed: false, errors: ['decrypt pending'] },
+        structureValidation: { passed: false, errors: ['decrypt pending'] },
+        keyFieldsMatched:   { passed: false, errors: ['decrypt pending'] },
+        contentValidation:  { passed: false, errors: ['decrypt pending'] },
+      },
+      mismatchDetails: [],
+    };
+
     let decrypted;
     try {
       decrypted = await decryptCallback(rawBody);
+      report.decryptOk = true;
+      report.deliveryStatus = 'PASS';
+      report.applicationId = decrypted.applicationId ?? null;
     } catch (err) {
-      allErrors.push(`Decrypt failed: ${err.message}`);
+      const msg = `Decrypt failed: ${err.message}`;
+      report.deliveryStatus = 'FAIL';
+      report.checks = {
+        schemaValidation:   { passed: false, errors: [msg] },
+        structureValidation: { passed: false, errors: ['decryption failed'] },
+        keyFieldsMatched:   { passed: false, errors: ['decryption failed'] },
+        contentValidation:  { passed: false, errors: ['decryption failed'] },
+      };
+      report.mismatchDetails = [msg];
+      allErrors.push(msg);
+      callbackReports.push(report);
       continue;
     }
 
     const isDocLevel = !!decrypted.documentId;
+    report.type = isDocLevel ? 'document' : 'application';
+    report.documentId = decrypted.documentId ?? null;
+    const cbAppId = decrypted.applicationId ?? body.applicationId;
+
     if (isDocLevel) {
-      const docErrors = validateDocumentCallback(decrypted);
-      if (docErrors.length) allErrors.push(...docErrors);
-      else console.log(`    ✓ Document callback OK (docId=${decrypted.documentId})`);
+      const group = getAppGroup(cbAppId);
+      group.docIndices.push(cbIdx);
+      const validation = validateDocumentCallback(decrypted, { expectedApplicationId: cbAppId });
+      report.checks = validation.checks;
+      report.mismatchDetails = validation.allErrors;
+      if (validation.scoreGating) report.scoreGating = validation.scoreGating;
+      if (!validation.passed) {
+        allErrors.push(...validation.allErrors.map(e => `doc-callback: ${e}`));
+        console.log(`    ✗ Document callback FAILED (docId=${decrypted.documentId}) — ${validation.allErrors.length} error(s)`);
+        for (const e of validation.allErrors) console.log(`      • ${e}`);
+      } else {
+        console.log(`    ✓ Document callback OK (docId=${decrypted.documentId})`);
+      }
+      // Capture BANK_STATEMENT totals for cross-validation (only BankStatement family)
+      const docType = decrypted.documentType ?? '';
+      if (docType === 'BANK_STATEMENT' || docType === 'BankStatement') {
+        const ocr = decrypted.ocrResult ?? {};
+        const docData = ocr.documentData;
+        const calcDebitsRaw  = docData?.calculated_debits  ?? ocr.calculated_debits;
+        const calcCreditsRaw = docData?.calculated_credits ?? ocr.calculated_credits;
+        const summDebitsRaw  = docData?.summary_debits     ?? ocr.summary_debits;
+        const summCreditsRaw = docData?.summary_credits    ?? ocr.summary_credits;
+        // Extract account identity fields from summary array for account grouping
+        const summaryArr = Array.isArray(docData?.summary) ? docData.summary : [];
+        const firstSummary = summaryArr[0] ?? {};
+        group.bankStatementDocTotals.push({
+          docId:             decrypted.documentId,
+          calcDebitsRaw,
+          calcCreditsRaw,
+          calculatedDebits:  parseNumericAmount(calcDebitsRaw  ?? ''),
+          calculatedCredits: parseNumericAmount(calcCreditsRaw ?? ''),
+          summDebitsRaw,
+          summCreditsRaw,
+          summaryDebits:     parseNumericAmount(summDebitsRaw  ?? ''),
+          summaryCredits:    parseNumericAmount(summCreditsRaw ?? ''),
+          scoreGating:       validation.scoreGating ?? null,
+          // Account identity for cross-validation grouping
+          accountNumber:      firstSummary.accountNumber     ?? null,
+          accountHolderName:  firstSummary.accountHolderName ?? null,
+          bankName:           firstSummary.bankName          ?? null,
+        });
+      }
     } else {
-      const appErrors = validateApplicationCallback(decrypted);
-      if (appErrors.length) allErrors.push(...appErrors);
-      else console.log(`    ✓ Application callback OK (appId=${decrypted.applicationId})`);
+      const group = getAppGroup(cbAppId);
+      group.appIndex = cbIdx;
+      group.appDecrypted = decrypted;
+      const validation = validateApplicationCallback(decrypted, { expectedApplicationId: cbAppId });
+      report.checks = validation.checks;
+      report.mismatchDetails = validation.allErrors;
+      if (!validation.passed) {
+        allErrors.push(...validation.allErrors.map(e => `app-callback: ${e}`));
+        console.log(`    ✗ Application callback FAILED (appId=${decrypted.applicationId}) — ${validation.allErrors.length} error(s)`);
+        for (const e of validation.allErrors) console.log(`      • ${e}`);
+      } else {
+        console.log(`    ✓ Application callback OK (appId=${decrypted.applicationId})`);
+      }
     }
+
+    callbackReports.push(report);
+  }
+
+  // ── Per-applicationId post-processing ──────────────────────────────────────
+  for (const [appId, group] of appGroups) {
+    // Ordering: document callbacks must all arrive before the application callback
+    if (group.appIndex !== -1 && group.docIndices.length > 0) {
+      const lastDocIdx = Math.max(...group.docIndices);
+      if (group.appIndex < lastDocIdx) {
+        const orderErr = `app-callback: received before all document callbacks (app at index ${group.appIndex}, last doc at ${lastDocIdx})`;
+        allErrors.push(orderErr);
+        const appReport = callbackReports.find(r => r.type === 'application' && r.applicationId === appId);
+        if (appReport) {
+          appReport.checks.keyFieldsMatched.errors.push(orderErr);
+          appReport.checks.keyFieldsMatched.passed = false;
+          appReport.mismatchDetails.push(orderErr);
+        }
+      }
+    }
+
+    // Cross-validate BANK_STATEMENT doc totals vs application computedFields.
+    // Group by account identity first — only same-account docs are compared.
+    if (group.bankStatementDocTotals.length >= 2) {
+      if (!group.appDecrypted) {
+        console.log(`    ⚠ ${group.bankStatementDocTotals.length} BankStatement docs for appId=${appId} — cross-validation skipped (no app callback)`);
+      } else {
+        const appReport = callbackReports.find(r => r.type === 'application' && r.applicationId === appId);
+        if (appReport) {
+          const accountGroups = groupBankStatementsByAccount(group.bankStatementDocTotals);
+          for (const [acctKey, acctDocs] of accountGroups) {
+            if (acctDocs.length < 2) {
+              console.log(`    ℹ Account group [${acctKey}] has ${acctDocs.length} doc — cross-validation not applicable`);
+              continue;
+            }
+            console.log(`    ℹ Cross-validating ${acctDocs.length} BankStatement docs for appId=${appId}, account group [${acctKey}]`);
+            crossValidateBankStatementTotals(acctDocs, group.appDecrypted, appReport, allErrors);
+          }
+        }
+      }
+    } else if (group.bankStatementDocTotals.length === 1) {
+      console.log(`    ℹ Single BankStatement for appId=${appId} — multi-doc cross-validation not applicable`);
+    }
+  }
+
+  // Emit structured per-callback report lines for runner to parse
+  console.log(`\n  Callback Validation Report (${tc.id}):`);
+  for (const report of callbackReports) {
+    const c = report.checks;
+    const p = (chk) => chk.passed ? 'PASS' : 'FAIL';
+    const idLabel = report.type === 'document'
+      ? `docId=${report.documentId ?? '?'}`
+      : `appId=${report.applicationId ?? '?'}`;
+    console.log(
+      `  [cb-report] idx=${report.index} type=${report.type} ${idLabel}` +
+      ` delivery=${report.deliveryStatus}` +
+      ` decrypt=${report.decryptOk ? 'OK' : 'FAIL'}` +
+      ` schema=${p(c.schemaValidation)}` +
+      ` structure=${p(c.structureValidation)}` +
+      ` keyFields=${p(c.keyFieldsMatched)}` +
+      ` content=${p(c.contentValidation)}`
+    );
+    if (report.mismatchDetails.length > 0) {
+      for (const e of report.mismatchDetails) console.log(`    ✗ ${e}`);
+    }
+    // Emit JSON line for runner to capture full detail without regex fragility
+    const jsonPayload = {
+      index: report.index,
+      type: report.type,
+      documentId: report.documentId,
+      applicationId: report.applicationId,
+      deliveryStatus: report.deliveryStatus,
+      decryptOk: report.decryptOk,
+      checks: {
+        schemaValidation:   { passed: c.schemaValidation.passed,   errors: c.schemaValidation.errors },
+        structureValidation: { passed: c.structureValidation.passed, errors: c.structureValidation.errors },
+        keyFieldsMatched:   { passed: c.keyFieldsMatched.passed,   errors: c.keyFieldsMatched.errors },
+        contentValidation:  { passed: c.contentValidation.passed,  errors: c.contentValidation.errors },
+      },
+      mismatchDetails: report.mismatchDetails,
+    };
+    if (report.scoreGating) jsonPayload.scoreGating = report.scoreGating;
+    if (report.crossValidation) jsonPayload.crossValidation = report.crossValidation;
+    if (report.type === 'application') {
+      const qaSummary = computeApplicationQaSummary(report);
+      report.qaSummary  = qaSummary;
+      jsonPayload.qaSummary = qaSummary;
+    }
+    console.log(`  [cb-report-json] ${JSON.stringify(jsonPayload)}`);
   }
 
   if (allErrors.length) {
     return {
       passed: false,
-      actualResult: `Callback validation: ${allErrors.length} error(s): ${allErrors.join('; ')}`,
+      actualResult: `Callback validation: ${allErrors.length} error(s): ${allErrors.slice(0, 3).join('; ')}${allErrors.length > 3 ? ` … (+${allErrors.length - 3} more)` : ''}`,
       curlCmd,
       failedAssertions: allErrors.join('\n'),
+      callbackReports,
     };
   }
 
-  return { passed: true, actualResult: `HTTP 200 ACCEPTED — ${callbacks.length} callbacks validated`, curlCmd, failedAssertions: null };
+  return {
+    passed: true,
+    actualResult: `HTTP 200 ACCEPTED — ${callbacks.length} callbacks validated`,
+    curlCmd,
+    failedAssertions: null,
+    callbackReports,
+  };
 }
 
 // ── Step 5: Post results comment ──────────────────────────────────────────────
@@ -895,7 +2287,7 @@ async function runBaselineHealthChecks() {
 
   // 1. GET /health — status ok/healthy, revision exists, service exists
   try {
-    const client = createPreviewClient('/health');
+    const client = await createPreviewClient('/health');
     const res = await client.get('/health');
     if (res.status !== 200) {
       errors.push(`GET /health returned HTTP ${res.status}`);
@@ -913,7 +2305,7 @@ async function runBaselineHealthChecks() {
 
   // 2. GET /health/detailed — services exist, redis/pg healthy, force_failure off
   try {
-    const client = createPreviewClient('/health/detailed');
+    const client = await createPreviewClient('/health/detailed');
     const res = await client.get('/health/detailed');
     if (res.status !== 200) {
       errors.push(`GET /health/detailed returned HTTP ${res.status}`);
@@ -933,7 +2325,7 @@ async function runBaselineHealthChecks() {
 
   // 3. GET /ai-gateway/health/gateway-circuit-breakers — boost_callback.state=closed
   try {
-    const client = createPreviewClient('/ai-gateway/health/gateway-circuit-breakers');
+    const client = await createPreviewClient('/ai-gateway/health/gateway-circuit-breakers');
     const res = await client.get('/ai-gateway/health/gateway-circuit-breakers');
     if (res.status !== 200) {
       errors.push(`GET /ai-gateway/health/gateway-circuit-breakers returned HTTP ${res.status}`);
@@ -963,8 +2355,19 @@ async function main() {
 
   await runBaselineHealthChecks();
 
-  const pr = await getPr();
-  await createClickUpList(pr);
+  if (DISABLE_REMOTE_POSTING) {
+    console.log('  [run_qa] Remote posting disabled — skipping PR metadata fetch and ClickUp setup');
+  } else {
+    let pr = null;
+    try {
+      pr = await getPr();
+    } catch (err) {
+      console.warn(`  ⚠ PR metadata fetch failed — skipping ClickUp setup and continuing: ${err.message}`);
+    }
+    if (pr) {
+      await createClickUpList(pr);
+    }
+  }
 
   // Create a fresh webhook token for batch tests (only if env vars are available)
   const hasBatchTests = testCases.some(tc => tc.type === 'batch');
@@ -1037,14 +2440,36 @@ async function main() {
   }
 
   console.log();
-  await postResultsComment(summary, results);
+  if (DISABLE_REMOTE_POSTING) {
+    console.log('→ Remote posting disabled — skipping GitHub PR comment');
+  } else {
+    await postResultsComment(summary, results);
+  }
 
   const passedCount = results.filter(r => r.passed).length;
   console.log(`\n→ Done. ${passedCount}/${results.length} passed.`);
   if (passedCount < results.length) process.exit(1);
 }
 
-main().catch(err => {
-  console.error('Fatal:', err.message);
-  process.exit(1);
-});
+// ── Conditional execution vs import ─────────────────────────────────────────
+// When imported for testing, skip auto-execution.
+const isDirectRun = process.argv[1] &&
+  (process.argv[1].endsWith('run_qa.mjs') || process.argv[1].endsWith('run_qa'));
+
+if (isDirectRun) {
+  main().catch(err => {
+    console.error('Fatal:', err.message);
+    process.exit(1);
+  });
+}
+
+export {
+  validateBankStatementDocCallback,
+  validateDocumentCallback,
+  validateApplicationCallback,
+  crossValidateBankStatementTotals,
+  groupBankStatementsByAccount,
+  parseNumericAmount,
+  resolvePath,
+  isFraudFlagged,
+};

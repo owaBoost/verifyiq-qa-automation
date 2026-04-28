@@ -304,6 +304,42 @@ The `/ai-gateway/batch-upload` endpoint uses **SCREAMING_SNAKE_CASE** `documentT
 
 > **Always read `fixture-registry.json` first** — v2.0 contains 99 fixtures across 32 document types covering all files in `gs://qa-automation-dev`. Only check GCS directly if the registry doesn't have what you need.
 
+## Batch-Upload Validation Decision Flow
+
+A batch-upload request can contain **1 document OR multiple related documents**. The API creates exactly 1 `applicationId` per batch-upload, regardless of document count.
+
+**Expected callbacks:** document callback(s) + 1 application callback.
+
+**Decision flow for test-case generation and validation:**
+
+```
+batch-upload submitted
+  └─ API returns 1 applicationId
+       └─ Group callbacks by applicationId
+            └─ Count document callbacks
+                 ├─ 1 document:
+                 │    ├─ Validate document callback (schema, structure, keyFields, content)
+                 │    ├─ Validate application callback
+                 │    └─ Do NOT emit or assert crossValidation
+                 │
+                 └─ 2+ documents:
+                      ├─ Validate each document callback
+                      ├─ Validate application callback
+                      └─ Check cross-validation eligibility:
+                           ├─ Group documents by account identity
+                           │   (accountNumber > accountHolderName > bankName)
+                           ├─ Only run crossValidation within same account group
+                           ├─ Account group must have 2+ documents
+                           └─ All documents must pass score-gating
+                                (no ABORTED_LOW_QUALITY or DOC_LEVEL_ONLY)
+```
+
+**Rules:**
+- Do NOT assume batch-upload always contains multiple documents.
+- Do NOT assert `crossValidation` on single-document batch test cases.
+- Single-doc batch tests should pass with only document + application callback validation.
+- `crossValidation` is conditional on: multiple documents + same account group + score eligibility.
+
 ## Fixture Completeness Profile
 
 **COMPLETE** (all fields present — expect `FOUND_WITH_VALUE`):

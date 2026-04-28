@@ -62,16 +62,91 @@ ClickUp Tasks: 86b919n51
 |---|---|---|
 | `VERIFYIQ_API_KEY` | yes | VerifyIQ tenant API key |
 | `CLICKUP_API_TOKEN` | yes | ClickUp API token for posting results |
-| `GOOGLE_SA_KEY_FILE` | yes | Path to GCP service account JSON for IAP auth |
 | `CLICKUP_FOLDER_ID` | yes | ClickUp folder ID (use `90147709410`) |
-| `GH_TOKEN` | yes | GitHub PAT for fetching PR diffs |
+| `GH_TOKEN` | yes | GitHub PAT with repo + PR comment permissions |
 | `IAP_TOKEN` | optional | Pre-generated IAP token (auto-generated if not set) |
+
+**Optional — only needed for batch test cases (`/ai-gateway/` endpoints):**
+
+| Variable | Description |
+|---|---|
+| `GOOGLE_SA_KEY_FILE` | Path to GCP service account JSON for IAP auth |
+| `WEBHOOK_SERVER_URL` | Webhook server URL for async batch callbacks |
+| `WEBHOOK_TOKEN_ID` | Webhook token ID (auto-created at runtime if not set) |
+
+## Multi-Agent Pipeline
+
+The repo also supports a structured multi-agent pipeline that chains five stages:
+
+```
+planner → generator → runner → evaluator → reporter
+```
+
+Run the full pipeline:
+
+```bash
+node pipeline.mjs [clickup_task_id ...]
+# or
+npm run pipeline -- [clickup_task_id ...]
+```
+
+Run a specific test type directly:
+
+```bash
+npm run pipeline:parse   -- [clickup_task_id ...]   # parse-only tests
+npm run pipeline:batch   -- [clickup_task_id ...]   # batch-upload tests
+npm run pipeline:auth    -- [clickup_task_id ...]   # auth-boundary tests
+npm run pipeline:full    -- [clickup_task_id ...]   # full regression
+```
+
+### Running the pipeline watcher
+
+The watcher polls `tasks/pending/` every 10 seconds and automatically runs the pipeline for any new plan JSON it finds:
+
+```bash
+node watcher.mjs
+# or
+npm run watch:pipeline
+```
+
+Drop a plan into `tasks/pending/` (via the planner agent or manually) and the watcher picks it up, runs all stages, and moves it to `tasks/completed/`. Plans that fail are also moved to `tasks/completed/` with `status: "failed"` and an error report in `reports/`. Lock files prevent duplicate execution and auto-expire after 10 minutes.
+
+Each stage can also run standalone:
+
+```bash
+node agents/planner/index.mjs 86b91ztdx          # creates tasks/pending/<plan>.json
+node agents/generator/index.mjs <plan-file>.json  # generates test-cases.json
+node agents/runner/index.mjs <plan-file>.json     # runs run_qa.mjs
+node agents/evaluator/index.mjs <plan-file>.json  # writes reports/<plan>-eval.json
+node agents/reporter/index.mjs <plan-file>.json   # writes reports/<plan>-report.md
+```
+
+### Pipeline folder structure
+
+```
+agents/
+  planner/index.mjs      — reads PR + env, creates plan JSON
+  generator/index.mjs     — generates or reuses test-cases.json
+  runner/index.mjs        — executes run_qa.mjs
+  evaluator/index.mjs     — summarizes pass/fail into eval JSON
+  reporter/index.mjs      — writes markdown report, posts to ClickUp
+tasks/
+  pending/                — new plan JSONs land here
+  running/                — plans move here during execution
+  completed/              — finished plans end up here
+reports/                  — eval JSON + markdown reports
+memory/                   — reserved for future agent memory
+```
+
+The pipeline does **not** replace the existing `run_qa.mjs` CLI — it wraps it. You can still run `node run_qa.mjs` directly as before.
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `run_qa.mjs` | Test runner — executes TCs against preview env, posts results to ClickUp |
+| `pipeline.mjs` | Multi-agent pipeline orchestrator |
+| `watcher.mjs` | Auto-processes plans from tasks/pending/ on a 10s poll |
 | `QA_PROMPT_TEMPLATE.md` | Full prompt template with all rules, fixtures, and examples |
 | `qa-run.sh` | Shell wrapper — loads `.env` and runs `run_qa.mjs` |
 | `.env.example` | Template for environment variables |

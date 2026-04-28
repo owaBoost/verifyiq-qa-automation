@@ -1,0 +1,12 @@
+{
+  "name": "aoi-smoke",
+  "description": "Articles of Incorporation — 5-fixture smoke test",
+  "fileType": "ArticlesOfIncorporation",
+  "fixtures": [
+    "gs://test-ai-docs-data-dev/qa-test-data/Articles of Incorporation/56035_Articles of Incorporation_2.pdf",
+    "gs://test-ai-docs-data-dev/qa-test-data/Articles of Incorporation/56036_Articles of Incorporation_3.pdf",
+    "gs://test-ai-docs-data-dev/qa-test-data/Articles of Incorporation/56039_Articles of Incorporation_7.pdf",
+    "gs://test-ai-docs-data-dev/qa-test-data/Articles of Incorporation/56040_Articles of Incorporation_11.pdf",
+    "gs://test-ai-docs-data-dev/qa-test-data/Articles of Incorporation/56041_Articles of Incorporation_5.pdf"
+  ]
+}

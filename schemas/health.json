@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET /health",
+  "description": "Basic health check response",
+  "type": "object",
+  "required": ["status"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "pattern": "^(ok|healthy|OK|Healthy)$"
+    },
+    "revision": {
+      "type": "string"
+    },
+    "service": {
+      "type": "string"
+    }
+  }
+}

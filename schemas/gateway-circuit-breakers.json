@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET /ai-gateway/health/gateway-circuit-breakers",
+  "description": "Circuit breaker status for gateway callbacks",
+  "type": "object",
+  "required": ["boost_callback"],
+  "properties": {
+    "boost_callback": {
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

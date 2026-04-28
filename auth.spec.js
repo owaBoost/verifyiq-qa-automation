@@ -32,15 +32,15 @@ const VALID_PAYLOAD = {
 // tokens all pass through and return 200.
 const tests = [
   {
-    // Tenant token is not required at this layer — API processes the
-    // request without it as long as Authorization is present.
+    // VERIFYIQ_API_KEY is a tenant token, not a valid IAP bearer — the IAP
+    // layer rejects the request with 401 before it reaches the application.
     id: 'AUTH-MK-01',
-    title: 'Missing X-Tenant-Token → 422',
+    title: 'Missing X-Tenant-Token → 401 (IAP rejects non-IAP bearer)',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${VERIFYIQ_KEY}`,
     },
-    expect: { status: 422 },
+    expect: { status: 401 },
   },
   {
     // Tenant token value is not validated at this layer — API returns 200
@@ -55,16 +55,15 @@ const tests = [
     expect: { not5xx: true },
   },
   {
-    // Tenant token value is not validated at this layer — empty string is
-    // also accepted. We only assert it is not a server error.
+    // IAP rejects the non-IAP bearer before the app sees the empty token.
     id: 'AUTH-BK-02',
-    title: 'Empty string API key → 400',
+    title: 'Empty string API key → 401 (IAP rejects non-IAP bearer)',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${VERIFYIQ_KEY}`,
       'X-Tenant-Token': '',
     },
-    expect: { status: 400 },
+    expect: { status: 401 },
   },
   {
     // Tenant token value is not validated at this layer — API returns 200
@@ -79,12 +78,11 @@ const tests = [
     expect: { not5xx: true },
   },
   {
-    // Without any Authorization header, the IAP/Cloud Run infra layer
-    // rejects the request before it reaches the application.
+    // No Authorization header — IAP rejects immediately with 401.
     id: 'AUTH-NK-01',
-    title: 'No headers at all → 422',
+    title: 'No headers at all → 401 (IAP rejects, no bearer present)',
     headers: { 'Content-Type': 'application/json' },
-    expect: { status: 422 },
+    expect: { status: 401 },
   },
 ];
 
