@@ -217,6 +217,26 @@ Assess before generating test cases:
 
 ## Rules
 
+### Endpoint scoping from ClickUp context
+
+If ClickUp context is provided, scope test cases to the endpoints relevant to the ticket.
+Do NOT generate batch-upload or sync-batch coverage unless the ticket explicitly mentions
+batch processing. Use these signals:
+
+| Signal in ticket title/description | Target endpoint(s) |
+|---|---|
+| "parse", "prompt", "extraction", "field", "OCR", "[PARSING]" tag | `/v1/documents/parse` only |
+| "batch", "callback", "gateway", "applicationId", "webhook" | `/ai-gateway/batch-upload` |
+| "bulk", "sync batch", "/v1/documents/batch" | `/v1/documents/batch` |
+| "circuit breaker", "health" | Health endpoints only |
+| No clear signal / ambiguous | Cover all applicable endpoints |
+
+When both PR diff and ClickUp context are present, the ClickUp signal takes priority for
+endpoint scoping — the diff determines *which fields/assertions* to test, the ticket
+determines *which endpoints* to test against.
+
+### General rules
+
 - Negative cases: accept both 400 and 422 as valid
 - Use `assertions: []` for status-code-only checks
 - Assertions must target only fields affected by the change
