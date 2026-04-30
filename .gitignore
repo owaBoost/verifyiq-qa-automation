@@ -11,10 +11,14 @@ parse-results/
 bulk-results/
 tasks/running/
 tasks/completed/
-reports/*.json
-reports/*.md
-reports/callbacks/*/
-!reports/.gitkeep
-!reports/callbacks/.gitkeep
+reports/
 !tasks/running/.gitkeep
 !tasks/completed/.gitkeep
+
+# Claude Code local artifacts
+.claude/
+CLAUDE.md
+memory/
+
+# Tool run artifacts
+test-results/
