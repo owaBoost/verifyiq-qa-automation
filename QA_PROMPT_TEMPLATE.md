@@ -50,7 +50,7 @@ Claude auto-detects the mode based on what the operator provides:
 | `GH_TOKEN` | Yes | GitHub PAT for PR comments |
 | `PR_REPO` | Yes | `owner/repo` (e.g. `boost-capital/ai-parser-studio`) |
 | `PR_NUMBER` | Yes | PR number |
-| `GOOGLE_SA_KEY_FILE` | Yes | Path to service account JSON key — used to auto-generate IAP tokens at runtime (audience derived from `VERIFYIQ_SERVICE_URL`) |
+| `GOOGLE_SA_KEY_FILE` | Yes | Path to service account JSON key — used to auto-generate IAP tokens at runtime (audience = `IAP_CLIENT_ID`, the OAuth client ID from GCP IAP) |
 | `CLICKUP_API_TOKEN` | Optional | Enables ClickUp integration |
 | `CLICKUP_FOLDER_ID` | Optional | Defaults to `90147709410` |
 | `WEBHOOK_SERVER_URL` | Optional | Self-hosted Cloud Run webhook server for batch callback capture |

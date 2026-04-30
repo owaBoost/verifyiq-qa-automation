@@ -4,10 +4,9 @@ AI-powered QA pipeline — generates and runs test cases against PR preview envi
 
 ## How It Works
 
-1. Dev posts a PR number + preview URL in Slack
-2. Open Claude Code in this folder and paste the QA prompt with PR details
-3. Claude fetches the diff, ClickUp ACs, and GCS fixtures automatically
-4. Claude generates test cases, runs them, and posts results to ClickUp
+1. QA runs `node run_qa.mjs --pr owner/repo#42` from the CLI
+2. The runner fetches the PR diff, generates test cases via Claude Code CLI, executes them against the target environment, and posts results as a PR comment
+3. Results are also posted to ClickUp (when `CLICKUP_API_TOKEN` is set)
 
 ## One-Time Setup
 
@@ -19,36 +18,33 @@ cp .env.example .env
 # Fill in .env with your actual values — see Environment Variables below
 ```
 
-## Running QA for Any PR
+**Prerequisites:** Node 20+, [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
 
-Open Claude Code in this folder:
+## Running QA Against a PR
 
 ```bash
-cd E:\verifyiq-qa-automation
-claude
+# Full pipeline: fetch diff → generate TCs → run tests → post PR comment
+node run_qa.mjs --pr owaBoost/verifyiq-Dev#42
+
+# Dry run: same pipeline but skip posting the PR comment
+node run_qa.mjs --pr owaBoost/verifyiq-Dev#42 --dry-run
+
+# Re-run existing test cases (skip TC generation)
+node run_qa.mjs --pr owaBoost/verifyiq-Dev#42 --skip-generation
+
+# Local diff testing (from a clone of the parser repo)
+node run_qa.mjs --diff-source local
+
+# Read diff from a file
+node run_qa.mjs --diff-source file --diff-file my-changes.diff
+
+# Show all options
+node run_qa.mjs --help
 ```
 
-Then paste this prompt with the 3 values filled in:
+### Manual Claude Code workflow (alternative)
 
-```
-You are a QA automation engineer for VerifyIQ. Run the full QA pipeline:
-
-PR Number: [PR_NUMBER] from boost-capital/ai-parser-studio
-Preview URL: [PREVIEW_URL]
-ClickUp Tasks: [TASK_IDS] (comma separated)
-
-Steps:
-1. gh pr diff [PR_NUMBER] --repo boost-capital/ai-parser-studio
-2. Fetch each ClickUp task: curl -H "Authorization: Bearer $CLICKUP_API_TOKEN" https://api.clickup.com/api/v2/task/[TASK_ID]
-3. gsutil ls -r gs://qa-automation-dev/**
-4. Assess testability — if not testable via API, explain why and recommend another approach
-5. Generate test cases covering ALL AC scenarios — no count limit. Use wildcard paths array.*.field never numeric index. Save to test-cases.json
-6. Generate IAP token: node E:/verifyiq-playwright/scripts/gen-iap-token.js with audience [PREVIEW_URL]
-7. Run: node run_qa.mjs with VERIFYIQ_SERVICE_URL=[PREVIEW_URL]
-8. Report results and post to ClickUp folder 90147709410
-```
-
-Example for PR #289:
+Open Claude Code in this folder and paste a QA prompt with PR details:
 
 ```
 PR Number: 289
@@ -61,10 +57,14 @@ ClickUp Tasks: 86b919n51
 | Variable | Required | Description |
 |---|---|---|
 | `VERIFYIQ_API_KEY` | yes | VerifyIQ tenant API key |
-| `CLICKUP_API_TOKEN` | yes | ClickUp API token for posting results |
-| `CLICKUP_FOLDER_ID` | yes | ClickUp folder ID (use `90147709410`) |
+| `VERIFYIQ_SERVICE_URL` | yes | Target service URL (preview or dev) |
 | `GH_TOKEN` | yes | GitHub PAT with repo + PR comment permissions |
-| `IAP_TOKEN` | optional | Pre-generated IAP token (auto-generated if not set) |
+| `USE_IAP` | yes | Set to `true` for IAP-protected environments |
+| `IAP_CLIENT_ID` | yes | OAuth client ID from GCP IAP settings |
+| `CLICKUP_API_TOKEN` | optional | ClickUp API token for posting results |
+| `CLICKUP_FOLDER_ID` | optional | ClickUp folder ID (defaults to `90147709410`) |
+| `PR_REPO` | optional | Default PR repo (overridden by `--pr` flag) |
+| `PR_NUMBER` | optional | Default PR number (overridden by `--pr` flag) |
 
 **Optional — only needed for batch test cases (`/ai-gateway/` endpoints):**
 
