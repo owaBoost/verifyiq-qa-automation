@@ -20,23 +20,35 @@ cp .env.example .env
 
 **Prerequisites:** Node 20+, [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
 
-## Running QA Against a PR
+## Running QA
+
+Requires at least one of `--pr` or `--clickup` (unless `--skip-generation`).
 
 ```bash
-# Full pipeline: fetch diff → generate TCs → run tests → post PR comment
+# PR + ClickUp (full context — diff + acceptance criteria)
+node run_qa.mjs --pr owaBoost/verifyiq-Dev#42 --clickup 86b94t6av
+
+# PR only (diff-driven)
 node run_qa.mjs --pr owaBoost/verifyiq-Dev#42
+
+# ClickUp only (ticket-driven, runs against dev env)
+node run_qa.mjs --clickup 86b94t6av
+
+# Multiple ClickUp tasks
+node run_qa.mjs --clickup 86b94t6av --clickup 86b94t6bx
 
 # Dry run: same pipeline but skip posting the PR comment
 node run_qa.mjs --pr owaBoost/verifyiq-Dev#42 --dry-run
 
 # Re-run existing test cases (skip TC generation)
-node run_qa.mjs --pr owaBoost/verifyiq-Dev#42 --skip-generation
+node run_qa.mjs --skip-generation
+
+# Explicit environment override (auto-detected by default)
+node run_qa.mjs --pr owaBoost/verifyiq-Dev#42 --env dev
+node run_qa.mjs --pr owaBoost/verifyiq-Dev#42 --env preview
 
 # Local diff testing (from a clone of the parser repo)
 node run_qa.mjs --diff-source local
-
-# Read diff from a file
-node run_qa.mjs --diff-source file --diff-file my-changes.diff
 
 # Show all options
 node run_qa.mjs --help
@@ -57,11 +69,13 @@ ClickUp Tasks: 86b919n51
 | Variable | Required | Description |
 |---|---|---|
 | `VERIFYIQ_API_KEY` | yes | VerifyIQ tenant API key |
-| `VERIFYIQ_SERVICE_URL` | yes | Target service URL (preview or dev) |
-| `GH_TOKEN` | yes | GitHub PAT with repo + PR comment permissions |
+| `GH_TOKEN` | yes (with `--pr`) | GitHub PAT with repo + PR comment permissions |
 | `USE_IAP` | yes | Set to `true` for IAP-protected environments |
 | `IAP_CLIENT_ID` | yes | OAuth client ID from GCP IAP settings |
-| `CLICKUP_API_TOKEN` | optional | ClickUp API token for posting results |
+| `DEV_URL` | optional | Dev environment URL (defaults to `https://parser-dev.boostkh.com`) |
+| `VERIFYIQ_SERVICE_URL` | optional | Preview URL candidate (probed during `--env auto`) |
+| `PREVIEW_URL_PATTERN` | optional | Preview URL template, e.g. `https://pr-{NUMBER}.preview.example.com` |
+| `CLICKUP_API_TOKEN` | optional | ClickUp API token (for `--clickup` context + result posting) |
 | `CLICKUP_FOLDER_ID` | optional | ClickUp folder ID (defaults to `90147709410`) |
 | `PR_REPO` | optional | Default PR repo (overridden by `--pr` flag) |
 | `PR_NUMBER` | optional | Default PR number (overridden by `--pr` flag) |

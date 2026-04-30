@@ -8,7 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parsePrFlag, parseCliFlags } from './run_qa.mjs';
+import { parsePrFlag, parseCliFlags, validateEnvFlag } from './run_qa.mjs';
 
 // ── parsePrFlag ────────────────────────────────────────────────────────────────
 
@@ -150,5 +150,81 @@ describe('parseCliFlags — CLI flag defaults and combinations', () => {
     // Should not throw on unknown flags
     const flags = parseCliFlags(['--some-unknown-flag', '--skip-generation']);
     assert.equal(flags['skip-generation'], true);
+  });
+
+  // ── --clickup flag ──────────────────────────────────────────────────────────
+
+  it('--clickup accepts a single task ID', () => {
+    const flags = parseCliFlags(['--clickup', '86b94t6av']);
+    assert.deepEqual(flags.clickup, ['86b94t6av']);
+  });
+
+  it('--clickup accepts multiple repeated values', () => {
+    const flags = parseCliFlags(['--clickup', '86b94t6av', '--clickup', '86b94t6bx']);
+    assert.deepEqual(flags.clickup, ['86b94t6av', '86b94t6bx']);
+  });
+
+  it('--clickup is undefined when not provided', () => {
+    const flags = parseCliFlags([]);
+    assert.equal(flags.clickup, undefined);
+  });
+
+  // ── --env flag ──────────────────────────────────────────────────────────────
+
+  it('--env defaults to auto', () => {
+    const flags = parseCliFlags([]);
+    assert.equal(flags.env, 'auto');
+  });
+
+  it('--env accepts preview', () => {
+    const flags = parseCliFlags(['--env', 'preview']);
+    assert.equal(flags.env, 'preview');
+  });
+
+  it('--env accepts dev', () => {
+    const flags = parseCliFlags(['--env', 'dev']);
+    assert.equal(flags.env, 'dev');
+  });
+
+  // ── all Phase 1.5 flags combined ────────────────────────────────────────────
+
+  it('--pr + --clickup + --env together', () => {
+    const flags = parseCliFlags([
+      '--pr', 'org/repo#1',
+      '--clickup', 'abc123',
+      '--env', 'dev',
+      '--dry-run',
+    ]);
+    assert.equal(flags.pr, 'org/repo#1');
+    assert.deepEqual(flags.clickup, ['abc123']);
+    assert.equal(flags.env, 'dev');
+    assert.equal(flags['dry-run'], true);
+  });
+});
+
+// ── validateEnvFlag ─────────────────────────────────────────────────────────
+
+describe('validateEnvFlag — --env value validation', () => {
+
+  it('accepts auto', () => {
+    assert.equal(validateEnvFlag('auto'), 'auto');
+  });
+
+  it('accepts preview', () => {
+    assert.equal(validateEnvFlag('preview'), 'preview');
+  });
+
+  it('accepts dev', () => {
+    assert.equal(validateEnvFlag('dev'), 'dev');
+  });
+
+  it('defaults to auto when undefined', () => {
+    assert.equal(validateEnvFlag(undefined), 'auto');
+  });
+
+  it('rejects invalid values', () => {
+    assert.throws(() => validateEnvFlag('staging'), /Invalid --env value/);
+    assert.throws(() => validateEnvFlag('prod'), /Invalid --env value/);
+    assert.throws(() => validateEnvFlag('local'), /Invalid --env value/);
   });
 });

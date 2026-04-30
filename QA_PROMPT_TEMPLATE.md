@@ -92,13 +92,21 @@ Fetch **both** specs from the preview URL at runtime:
 
 ## Instructions
 
-1. Read the FULL PR diff — list every document type touched before generating any TCs.
+1. Read the FULL PR diff (if provided) — list every document type touched before generating any TCs.
 2. Fetch both OpenAPI specs (internal + official) to confirm endpoint schemas.
 3. Generate at least 1 TC per affected document type.
 4. If ClickUp task ACs are available, use them for targeted test scope.
 5. Use the GCS fixture listing and pick the most relevant fixture(s) for the changes.
 6. Always use exact `gs://` paths from the fixture listing — never invent file paths.
 7. Generate targeted positive and negative API test cases — no fixed count limit.
+
+## Context-Aware Test Generation
+
+Adapt your test generation strategy based on which context sections are present below:
+
+- **PR diff + ClickUp context:** Cover both code-level changes (from the diff) AND ticket acceptance criteria (from ClickUp). Ensure every AC has at least one test case.
+- **PR diff only:** Focus on code-level changes. Generate tests for the specific endpoints and document types affected by the diff.
+- **ClickUp context only:** Generate tests from the ticket's acceptance criteria and description. No diff-specific assertions — focus on validating the documented requirements against the current API.
 
 ## Known API Endpoints
 

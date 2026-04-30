@@ -38,11 +38,26 @@ export function parsePrFlag(value) {
  * Parse CLI flags from an argv array. Exported for testing.
  * @param {string[]} argv  Defaults to process.argv.slice(2)
  */
+/**
+ * Validate --env flag value. Exported for testing.
+ * @param {string|undefined} value
+ * @returns {'auto'|'preview'|'dev'}
+ */
+export function validateEnvFlag(value) {
+  const valid = ['auto', 'preview', 'dev'];
+  if (value && !valid.includes(value)) {
+    throw new Error(`Invalid --env value: "${value}". Expected: ${valid.join(', ')}`);
+  }
+  return value || 'auto';
+}
+
 export function parseCliFlags(argv) {
   const { values } = parseArgs({
     args: argv,
     options: {
       pr:              { type: 'string' },
+      clickup:         { type: 'string', multiple: true },
+      env:             { type: 'string', default: 'auto' },
       'diff-source':   { type: 'string', default: 'github' },
       'diff-file':     { type: 'string' },
       'dry-run':       { type: 'boolean', default: false },
@@ -62,9 +77,15 @@ if (cliFlags.help) {
   console.log(`
 Usage: node run_qa.mjs [options]
 
+  Requires at least one of --pr or --clickup (unless --skip-generation).
+
 Options:
   --pr <owner/repo#number>    PR to test (e.g. owaBoost/verifyiq-Dev#42)
-                              Overrides PR_REPO and PR_NUMBER env vars
+  --clickup <task-id>         ClickUp task for AC context (repeatable)
+  --env <auto|preview|dev>    Target environment (default: auto)
+                                auto    — probe preview, fall back to dev
+                                preview — require preview, error if unreachable
+                                dev     — use dev directly
   --diff-source <source>      Where to get the diff (default: github)
                                 github — fetch via GitHub API
                                 local  — run git diff main...HEAD locally
@@ -75,20 +96,31 @@ Options:
   --no-comment                Skip posting PR comment (tests still run)
   --help                      Show this help message
 
+Modes:
+  PR + ClickUp (full context):
+    node run_qa.mjs --pr owaBoost/verifyiq-Dev#42 --clickup 86b94t6av
+
+  PR only (diff-driven):
+    node run_qa.mjs --pr owaBoost/verifyiq-Dev#42
+
+  ClickUp only (ticket-driven, runs against dev):
+    node run_qa.mjs --clickup 86b94t6av
+
+  Re-run existing test cases:
+    node run_qa.mjs --skip-generation
+
 Environment variables (set in .env):
-  VERIFYIQ_SERVICE_URL        Target service URL (required)
   VERIFYIQ_API_KEY            Tenant API key (required)
-  GH_TOKEN                    GitHub PAT (required for diff fetch and comments)
+  GH_TOKEN                    GitHub PAT (required when --pr is used)
+  DEV_URL                     Parser dev URL (default: https://parser-dev.boostkh.com)
+  GATEWAY_DEV_URL             Gateway dev URL (default: same as DEV_URL)
+  PREVIEW_URL_PATTERN         Preview parser URL, e.g. https://pr-{NUMBER}---...run.app
+  PREVIEW_GATEWAY_URL_PATTERN Preview gateway URL (optional, falls back to GATEWAY_DEV_URL)
   USE_IAP                     Enable IAP authentication (set to 'true')
   IAP_CLIENT_ID               OAuth client ID for IAP
+  CLICKUP_API_TOKEN           ClickUp API token (optional, for --clickup)
   GOOGLE_SA_KEY_FILE          Path to service account JSON key
   WEBHOOK_SERVER_URL          Webhook server for batch callbacks
-
-Examples:
-  node run_qa.mjs --pr owaBoost/verifyiq-Dev#42
-  node run_qa.mjs --pr owaBoost/verifyiq-Dev#42 --dry-run
-  node run_qa.mjs --pr owaBoost/verifyiq-Dev#42 --skip-generation
-  node run_qa.mjs --diff-source local
 `.trim());
   process.exit(0);
 }
@@ -104,7 +136,15 @@ let   PR_NUMBER       = _parsedPr?.number ?? process.env.PR_NUMBER;
 const CLICKUP_TOKEN   = process.env.CLICKUP_API_TOKEN;
 const CLICKUP_FOLDER_ID = process.env.CLICKUP_FOLDER_ID || '90147709410';
 const VERIFYIQ_KEY    = process.env.VERIFYIQ_API_KEY;
-const PREVIEW_URL     = (process.env.VERIFYIQ_SERVICE_URL || '').trim().replace(/\/$/, '');
+let   PREVIEW_URL     = (process.env.VERIFYIQ_SERVICE_URL || '').trim().replace(/\/$/, '');
+const DEV_URL         = (process.env.DEV_URL || 'https://parser-dev.boostkh.com').trim().replace(/\/$/, '');
+const GATEWAY_DEV_URL = (process.env.GATEWAY_DEV_URL || '').trim().replace(/\/$/, '') || DEV_URL;
+const PREVIEW_URL_PATTERN = process.env.PREVIEW_URL_PATTERN || '';
+const PREVIEW_GATEWAY_URL_PATTERN = process.env.PREVIEW_GATEWAY_URL_PATTERN || '';
+
+// Resolved per-endpoint URLs — set by resolveServiceUrl(), used by createPreviewClient()
+let _resolvedParserUrl  = '';
+let _resolvedGatewayUrl = '';
 let   WEBHOOK_TOKEN_ID       = process.env.WEBHOOK_TOKEN_ID; // overwritten at runtime
 const WEBHOOK_SERVER_URL     = (process.env.WEBHOOK_SERVER_URL || '').trim().replace(/\/$/, '');
 const GOOGLE_SA_KEY_FILE     = process.env.GOOGLE_SA_KEY_FILE;
@@ -175,15 +215,9 @@ function validateConfig() {
     VERIFYIQ_SERVICE_URL: PREVIEW_URL,
   };
 
-  // GH_TOKEN needed for diff fetch and PR comments
-  if (!cliFlags['skip-generation'] || (!cliFlags['no-comment'] && !cliFlags['dry-run'])) {
+  // GH_TOKEN needed when we have a PR (diff fetch, comments)
+  if (cliFlags.pr) {
     required.GH_TOKEN = GITHUB_TOKEN;
-  }
-
-  // PR info required unless remote posting is fully disabled
-  if (!DISABLE_REMOTE_POSTING) {
-    required.PR_REPO    = PR_REPO;
-    required.PR_NUMBER  = PR_NUMBER;
   }
 
   const missing = Object.entries(required)
@@ -192,14 +226,212 @@ function validateConfig() {
 
   if (missing.length) {
     console.error(`Fatal: missing required config: ${missing.join(', ')}`);
-    console.error('Set them in .env or pass --pr owner/repo#number');
+    console.error('Set them in .env or pass appropriate CLI flags. See --help.');
     process.exit(1);
   }
 
   if (!/^https?:\/\//i.test(PREVIEW_URL)) {
-    console.error(`Fatal: VERIFYIQ_SERVICE_URL must start with https:// (got: "${PREVIEW_URL}")`);
+    console.error(`Fatal: resolved service URL must start with https:// (got: "${PREVIEW_URL}")`);
     process.exit(1);
   }
+}
+
+// ── Environment auto-detection ────────────────────────────────────────────────
+
+async function probeHealthEndpoint(url) {
+  try {
+    const res = await axios.head(`${url}/health`, { timeout: 5000, validateStatus: () => true });
+    return res.status >= 200 && res.status < 300;
+  } catch (err) {
+    console.log(`  ⚠ Probe ${url}/health failed: ${err.code || err.message}`);
+    return false;
+  }
+}
+
+/**
+ * Probe a PREVIEW_URL_PATTERN for reachability.
+ * Returns the resolved URL if reachable, null otherwise.
+ * Only called when pattern is configured AND a PR number is available.
+ */
+/**
+ * Probe a preview URL pattern for reachability. Exported for testing.
+ * Returns the resolved URL if reachable, null otherwise.
+ *
+ * @param {string} pattern    URL template with {NUMBER} placeholder
+ * @param {string} prNumber   PR number to substitute
+ * @param {Function} [probe]  Override health probe (for testing)
+ * @returns {Promise<string|null>}
+ */
+export async function probePreviewPattern(pattern, prNumber, probe) {
+  if (!pattern || !prNumber) return null;
+  const url = pattern.replace('{NUMBER}', prNumber).replace(/\/$/, '');
+  const probeFn = probe || probeHealthEndpoint;
+  if (await probeFn(url)) return url;
+  return null;
+}
+
+/**
+ * Resolve parser and gateway URLs based on --env flag and PREVIEW_URL_PATTERN.
+ * Sets _resolvedParserUrl and _resolvedGatewayUrl, returns the parser URL as
+ * the primary PREVIEW_URL (backward compat — most call sites use PREVIEW_URL).
+ */
+async function resolveServiceUrl() {
+  const envMode = validateEnvFlag(cliFlags.env);
+
+  // ── Explicit dev ────────────────────────────────────────────────────────────
+  if (envMode === 'dev') {
+    _resolvedParserUrl  = DEV_URL;
+    _resolvedGatewayUrl = GATEWAY_DEV_URL;
+    console.log(`→ Using dev env (--env dev): ${DEV_URL}`);
+    if (GATEWAY_DEV_URL !== DEV_URL) console.log(`  Gateway dev: ${GATEWAY_DEV_URL}`);
+    return DEV_URL;
+  }
+
+  // ── ClickUp-only mode (no PR) → always dev ─────────────────────────────────
+  if (!cliFlags.pr) {
+    _resolvedParserUrl  = DEV_URL;
+    _resolvedGatewayUrl = GATEWAY_DEV_URL;
+    console.log(`→ ClickUp-only mode, using dev env: ${DEV_URL}`);
+    if (GATEWAY_DEV_URL !== DEV_URL) console.log(`  Gateway dev: ${GATEWAY_DEV_URL}`);
+    return DEV_URL;
+  }
+
+  // ── Explicit preview — require at least one pattern to be reachable ────────
+  if (envMode === 'preview') {
+    if (!PREVIEW_URL_PATTERN) {
+      throw new Error(
+        '--env preview specified but PREVIEW_URL_PATTERN is not configured in .env.',
+      );
+    }
+    const parserUrl = await probePreviewPattern(PREVIEW_URL_PATTERN, PR_NUMBER);
+    if (!parserUrl) {
+      const tried = PREVIEW_URL_PATTERN.replace('{NUMBER}', PR_NUMBER);
+      throw new Error(
+        `--env preview specified but preview is unreachable: ${tried}`,
+      );
+    }
+    _resolvedParserUrl = parserUrl;
+    console.log(`→ Using preview env: ${parserUrl}`);
+
+    // Gateway preview — optional, fall back to gateway dev if unconfigured/unreachable
+    const gwUrl = await probePreviewPattern(PREVIEW_GATEWAY_URL_PATTERN, PR_NUMBER);
+    _resolvedGatewayUrl = gwUrl || GATEWAY_DEV_URL;
+    if (gwUrl) {
+      console.log(`  Gateway preview: ${gwUrl}`);
+    } else if (PREVIEW_GATEWAY_URL_PATTERN) {
+      console.log(`  ⚠ Gateway preview unreachable, using gateway dev: ${GATEWAY_DEV_URL}`);
+    }
+    return parserUrl;
+  }
+
+  // ── Auto mode with PR ──────────────────────────────────────────────────────
+  // Only try genuine preview patterns — never label DEV_URL as "preview"
+  if (PREVIEW_URL_PATTERN) {
+    const parserUrl = await probePreviewPattern(PREVIEW_URL_PATTERN, PR_NUMBER);
+    if (parserUrl) {
+      _resolvedParserUrl = parserUrl;
+      console.log(`→ Using preview env: ${parserUrl}`);
+
+      const gwUrl = await probePreviewPattern(PREVIEW_GATEWAY_URL_PATTERN, PR_NUMBER);
+      _resolvedGatewayUrl = gwUrl || GATEWAY_DEV_URL;
+      if (gwUrl) {
+        console.log(`  Gateway preview: ${gwUrl}`);
+      } else if (PREVIEW_GATEWAY_URL_PATTERN) {
+        console.log(`  ⚠ Gateway preview unreachable, using gateway dev: ${GATEWAY_DEV_URL}`);
+      }
+      return parserUrl;
+    }
+    const tried = PREVIEW_URL_PATTERN.replace('{NUMBER}', PR_NUMBER);
+    console.log(`→ Preview unreachable (${tried}), falling back to dev env: ${DEV_URL}`);
+  } else {
+    console.log(`→ No PREVIEW_URL_PATTERN configured, using dev env: ${DEV_URL}`);
+  }
+
+  _resolvedParserUrl  = DEV_URL;
+  _resolvedGatewayUrl = GATEWAY_DEV_URL;
+  if (GATEWAY_DEV_URL !== DEV_URL) console.log(`  Gateway dev: ${GATEWAY_DEV_URL}`);
+  return DEV_URL;
+}
+
+/**
+ * Return the resolved base URL for a given endpoint.
+ * Gateway endpoints (/ai-gateway/*, /api/v1/applications/*) use the gateway URL;
+ * everything else uses the parser URL.
+ */
+function resolveBaseUrlForEndpoint(endpoint) {
+  if (needsIapAuth(endpoint)) return _resolvedGatewayUrl || PREVIEW_URL;
+  return _resolvedParserUrl || PREVIEW_URL;
+}
+
+// ── ClickUp context fetching ─────────────────────────────────────────────────
+
+/**
+ * Format a ClickUp task + comments into markdown. Exported for testing.
+ */
+export function formatClickUpTask(task, comments) {
+  const lines = [
+    `# ${task.name} (${task.id})`,
+    '',
+    task.url ? `**URL:** ${task.url}` : null,
+    '',
+    '## Description',
+    '',
+    (task.description || task.text_content || '_(no description)_').trim(),
+    '',
+    '## Comments',
+    '',
+  ].filter(l => l !== null);
+
+  if (!comments.length) {
+    lines.push('_(no comments)_');
+  } else {
+    for (const c of comments) {
+      const who = c.user?.username || c.user?.email || 'unknown';
+      const when = Number.isFinite(Number(c.date))
+        ? new Date(Number(c.date)).toISOString()
+        : String(c.date ?? '');
+      const text = (c.comment_text || (c.comment || []).map(p => p.text).join('') || '').trim();
+      lines.push(`### ${who} — ${when}`, '', text, '');
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Fetch ClickUp task context for one or more task IDs.
+ * Returns markdown string. Returns '' on any failure (silent fallback).
+ *
+ * @param {string[]} taskIds
+ * @param {object}   [client]  Axios-like client (default: module-level clickup instance)
+ * @returns {Promise<string>}
+ */
+export async function fetchClickUpContext(taskIds, client) {
+  if (!taskIds?.length) return '';
+
+  // Defer client resolution so the module-level clickup instance isn't required at import time
+  const cl = client || clickup;
+  const token = cl.defaults?.headers?.Authorization;
+  if (!token) {
+    console.warn('  ⚠ CLICKUP_API_TOKEN not set — skipping ClickUp context');
+    return '';
+  }
+
+  const blocks = [];
+  for (const id of taskIds) {
+    try {
+      console.log(`→ Fetching ClickUp task ${id}...`);
+      const { data: task } = await cl.get(`/task/${id}`);
+      const { data: commentsRes } = await cl.get(`/task/${id}/comment`);
+      const md = formatClickUpTask(task, commentsRes.comments || []);
+      blocks.push(md);
+      console.log(`  ✓ ClickUp task ${id}: ${task.name}`);
+    } catch (err) {
+      const detail = err.response?.data ? JSON.stringify(err.response.data).slice(0, 200) : err.message;
+      console.warn(`  ⚠ ClickUp fetch failed for ${id}: ${detail} — continuing without this task`);
+    }
+  }
+
+  return blocks.join('\n\n---\n\n');
 }
 
 // ── Axios clients ─────────────────────────────────────────────────────────────
@@ -257,7 +489,7 @@ async function createPreviewClient(endpoint) {
   }
 
   return axios.create({
-    baseURL: PREVIEW_URL,
+    baseURL: resolveBaseUrlForEndpoint(endpoint),
     headers,
     validateStatus: () => true,
   });
@@ -332,31 +564,31 @@ async function fetchDiff(repo, number, source, filePath) {
 // ── Test-case generation via Claude Code CLI ─────────────────────────────────
 
 /**
- * Generate test cases from a diff by invoking `claude -p` with the QA prompt template.
- * Writes the result to test-cases.json.
+ * Generate test cases by invoking `claude -p` with the QA prompt template.
+ * Accepts PR diff and/or ClickUp context. Writes result to test-cases.json.
  *
- * @param {string} diff  The PR diff content
- * @returns {object}     The parsed test-cases JSON
+ * @param {{ diff?: string, clickUpContext?: string }} context
+ * @returns {object} The parsed test-cases JSON
  */
-function generateTestCasesFromDiff(diff) {
+function generateTestCases({ diff, clickUpContext } = {}) {
   console.log('→ Generating test cases via Claude Code CLI...');
 
   const template = readFileSync('QA_PROMPT_TEMPLATE.md', 'utf8');
   const registry = readFileSync('fixture-registry.json', 'utf8');
 
-  const prompt = [
-    template,
-    '',
-    '## PR Diff',
-    '```diff',
-    diff,
-    '```',
-    '',
-    '## Fixture Registry (fixture-registry.json)',
-    '```json',
-    registry,
-    '```',
-  ].join('\n');
+  const promptParts = [template];
+
+  if (diff) {
+    promptParts.push('', '## PR Diff', '```diff', diff, '```');
+  }
+
+  if (clickUpContext) {
+    promptParts.push('', '## ClickUp Task Context', '', clickUpContext);
+  }
+
+  promptParts.push('', '## Fixture Registry (fixture-registry.json)', '```json', registry, '```');
+
+  const prompt = promptParts.join('\n');
 
   let output;
   try {
@@ -2153,7 +2385,7 @@ async function runBatchTestCase(tc) {
       batchHeaders['Proxy-Authorization'] = `Bearer ${await getGoogleIdToken(IAP_CLIENT_ID)}`;
     }
     const client = axios.create({
-      baseURL: PREVIEW_URL,
+      baseURL: resolveBaseUrlForEndpoint('/ai-gateway/batch-upload'),
       headers: batchHeaders,
       validateStatus: () => true,
     });
@@ -2524,18 +2756,41 @@ async function runBaselineHealthChecks() {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+  // Require at least one input source (unless re-running existing TCs)
+  if (!cliFlags['skip-generation'] && !cliFlags.pr && !cliFlags.clickup?.length) {
+    console.error('Error: provide --pr <owner/repo#number> or --clickup <task-id> (or both).');
+    console.error('See --help for examples.');
+    process.exit(1);
+  }
+
+  // Resolve target environment URL (may probe preview, fall back to dev)
+  PREVIEW_URL = await resolveServiceUrl();
+
   validateConfig();
 
-  const shouldPost = !DISABLE_REMOTE_POSTING && !cliFlags['dry-run'] && !cliFlags['no-comment'];
+  // Can only post to a PR if we have one
+  const shouldPost = !DISABLE_REMOTE_POSTING && !cliFlags['dry-run'] && !cliFlags['no-comment'] && !!cliFlags.pr;
 
-  // ── Orchestration: diff → generate → run → post ────────────────────────────
-  if (!cliFlags['skip-generation'] && (cliFlags.pr || cliFlags['diff-source'] !== 'github')) {
-    const diff = await fetchDiff(
-      PR_REPO, PR_NUMBER,
-      cliFlags['diff-source'],
-      cliFlags['diff-file'],
-    );
-    generateTestCasesFromDiff(diff);
+  // ── Orchestration: diff + ClickUp → generate → run → post ─────────────────
+  if (!cliFlags['skip-generation']) {
+    let diff = null;
+    let clickUpContext = '';
+
+    if (cliFlags.pr) {
+      diff = await fetchDiff(
+        PR_REPO, PR_NUMBER,
+        cliFlags['diff-source'],
+        cliFlags['diff-file'],
+      );
+    }
+
+    if (cliFlags.clickup?.length) {
+      clickUpContext = await fetchClickUpContext(cliFlags.clickup);
+    }
+
+    if (diff || clickUpContext) {
+      generateTestCases({ diff, clickUpContext });
+    }
   }
 
   const { summary, test_cases: testCases } = loadTestCases();
