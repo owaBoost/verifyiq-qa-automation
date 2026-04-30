@@ -17,6 +17,20 @@ import { execSync } from 'child_process';
 import { parseArgs } from 'node:util';
 import { getGoogleIdToken } from './utils/iap-auth.js';
 import { mapFolderToFileType } from './utils/gcs-fixture-loader.mjs';
+import { readdirSync } from 'fs';
+
+// ── Load canonical field mappings at module load ─────────────────────────────
+// These define the exact response paths for each document type.
+// Injected into the Claude CLI prompt so generated assertions use real paths.
+const MAPPING_FILES = (() => {
+  const dir = 'mappings';
+  const skip = ['index.mjs', 'generic.mjs'];
+  const entries = [];
+  for (const f of readdirSync(dir).filter(f => f.endsWith('.mjs') && !skip.includes(f)).sort()) {
+    entries.push({ name: f, content: readFileSync(`${dir}/${f}`, 'utf8') });
+  }
+  return entries;
+})();
 
 // ── CLI argument parsing ─────────────────────────────────────────────────────
 
@@ -644,6 +658,22 @@ function generateTestCases({ diff, clickUpContext, adHocFixtures } = {}) {
   }
 
   promptParts.push('', '## Fixture Registry (fixture-registry.json)', '```json', registry, '```');
+
+  // Inject canonical field mappings — the LLM MUST use these paths in assertions
+  if (MAPPING_FILES.length) {
+    promptParts.push(
+      '',
+      '## Canonical Response Field Paths',
+      '',
+      'The following mapping files define the EXACT paths where parsed fields appear',
+      'in API responses. ALWAYS use these paths in assertions. Do not invent or',
+      'modify field paths. The `responsePaths` object in each mapping is the source',
+      'of truth for assertion path values.',
+    );
+    for (const { name, content } of MAPPING_FILES) {
+      promptParts.push('', `### ${name}`, '', '```js', content, '```');
+    }
+  }
 
   if (adHocFixtures?.length) {
     promptParts.push(
@@ -2995,4 +3025,5 @@ export {
   parseNumericAmount,
   resolvePath,
   isFraudFlagged,
+  MAPPING_FILES,
 };

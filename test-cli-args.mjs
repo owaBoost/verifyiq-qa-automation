@@ -8,7 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parsePrFlag, parseCliFlags, validateEnvFlag, parseFixtureFlag } from './run_qa.mjs';
+import { parsePrFlag, parseCliFlags, validateEnvFlag, parseFixtureFlag, MAPPING_FILES } from './run_qa.mjs';
 
 // ── parsePrFlag ────────────────────────────────────────────────────────────────
 
@@ -323,5 +323,40 @@ describe('parseCliFlags — --fixture flag', () => {
     assert.equal(flags.pr, 'org/repo#1');
     assert.deepEqual(flags.clickup, ['abc']);
     assert.deepEqual(flags.fixture, ['gs://b/f.pdf']);
+  });
+});
+
+// ── MAPPING_FILES — canonical field paths loaded at module init ──────────────
+
+describe('MAPPING_FILES — canonical response field paths', () => {
+
+  it('loads mapping files from mappings/ directory', () => {
+    assert.ok(Array.isArray(MAPPING_FILES), 'MAPPING_FILES should be an array');
+    assert.ok(MAPPING_FILES.length >= 6, `expected at least 6 mapping files, got ${MAPPING_FILES.length}`);
+  });
+
+  it('includes payslip.mjs with responsePaths containing documentData.*.basicPay', () => {
+    const payslip = MAPPING_FILES.find(m => m.name === 'payslip.mjs');
+    assert.ok(payslip, 'payslip.mjs should be in MAPPING_FILES');
+    assert.ok(payslip.content.includes("documentData.*.basicPay"), 'payslip mapping must contain documentData.*.basicPay');
+    assert.ok(payslip.content.includes("documentData.*.grossPay"), 'payslip mapping must contain documentData.*.grossPay');
+  });
+
+  it('includes bank-statement.mjs with responsePaths', () => {
+    const bs = MAPPING_FILES.find(m => m.name === 'bank-statement.mjs');
+    assert.ok(bs, 'bank-statement.mjs should be in MAPPING_FILES');
+    assert.ok(bs.content.includes('responsePaths'), 'bank-statement mapping must contain responsePaths');
+  });
+
+  it('excludes index.mjs and generic.mjs', () => {
+    assert.ok(!MAPPING_FILES.find(m => m.name === 'index.mjs'), 'index.mjs should not be included');
+    assert.ok(!MAPPING_FILES.find(m => m.name === 'generic.mjs'), 'generic.mjs should not be included');
+  });
+
+  it('each mapping file has name and content fields', () => {
+    for (const m of MAPPING_FILES) {
+      assert.ok(typeof m.name === 'string' && m.name.endsWith('.mjs'), `name should be a .mjs filename: ${m.name}`);
+      assert.ok(typeof m.content === 'string' && m.content.length > 0, `content should be non-empty for ${m.name}`);
+    }
   });
 });

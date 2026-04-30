@@ -237,6 +237,9 @@ determines *which endpoints* to test against.
 
 ### General rules
 
+- When generating assertion paths, use ONLY paths defined in the Canonical Response
+  Field Paths section (the `responsePaths` objects from `mappings/*.mjs`). Never invent
+  field paths or modify casing. The mapping files are the source of truth.
 - Negative cases: accept both 400 and 422 as valid
 - Use `assertions: []` for status-code-only checks
 - Assertions must target only fields affected by the change
