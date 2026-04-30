@@ -240,6 +240,10 @@ determines *which endpoints* to test against.
 - When generating assertion paths, use ONLY paths defined in the Canonical Response
   Field Paths section (the `responsePaths` objects from `mappings/*.mjs`). Never invent
   field paths or modify casing. The mapping files are the source of truth.
+- Do NOT add HTTP status as an assertion (e.g., `{path: "HTTP status", expected: "200"}`).
+  The runner automatically fails any test case where status != `expected_status`.
+  Status assertions are redundant noise. The `expected_status` field on the test case
+  itself (e.g., `expected_status: 200`) is fine and required — that's the runner's input.
 - Negative cases: accept both 400 and 422 as valid
 - Use `assertions: []` for status-code-only checks
 - Assertions must target only fields affected by the change
@@ -251,6 +255,18 @@ determines *which endpoints* to test against.
 - Never generate generic negative cases (missing file, missing fileType, empty items)
 - Never include `callbacks` in `/ai-gateway/batch-upload` payloads — the runner injects real webhook URLs at runtime
 - ALL test cases must directly test the specific PR change
+- For `/v1/documents/parse` test cases, assertions MUST focus on the SPECIFIC fields
+  the PR diff or ClickUp ticket explicitly changes or adds. Do NOT assert on generic
+  fields (basicPay, grossPay, netPay) unless the ticket is specifically about those fields.
+  Examples:
+  - Ticket: "Expand payslip terminology for PH-specific labels" → assert on
+    `documentData.*.sssContributionDeduction`, `documentData.*.philhealthContributionDeduction`,
+    `documentData.*.hdmfPagibigDeduction`, `documentData.*.withholdingTaxDeduction` — NOT
+    generic `documentData.*.basicPay` or `documentData.*.grossPay`
+  - Ticket: "Improve gross pay extraction accuracy" → assert on `documentData.*.grossPay`
+  - Ticket: "Add electricity bill provider X" → assert on the new provider's fields
+  The principle: each assertion should test something the PR/ticket is responsible for.
+  If an assertion would have passed before this PR existed, it doesn't belong.
 - NEVER use numeric index paths on arrays — use wildcard `*` instead
   - Good: `calculatedFields.*.pageNumber`
   - Bad: `calculatedFields.0.pageNumber`
