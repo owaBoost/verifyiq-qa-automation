@@ -2404,23 +2404,23 @@ async function runBatchTestCase(tc) {
     };
   }
 
-  // Inject webhook callbacks into payload if not already set
+  // Always overwrite callbacks with real webhook URLs. LLM-generated TCs may
+  // include placeholder callback blocks with <project>/<token> strings — the
+  // runner is the source of truth for webhook URLs.
   const payload = JSON.parse(JSON.stringify(tc.payload));
-  if (!payload.callbacks) {
-    const webhookIapHeader = { Authorization: `Bearer ${getWebhookIapToken()}` };
-    payload.callbacks = {
-      documentResult: {
-        url: `${WEBHOOK_SERVER_URL}/${WEBHOOK_TOKEN_ID}`,
-        method: 'POST',
-        headers: webhookIapHeader,
-      },
-      applicationResult: {
-        url: `${WEBHOOK_SERVER_URL}/${WEBHOOK_TOKEN_ID}`,
-        method: 'POST',
-        headers: webhookIapHeader,
-      },
-    };
-  }
+  const webhookIapHeader = { Authorization: `Bearer ${getWebhookIapToken()}` };
+  payload.callbacks = {
+    documentResult: {
+      url: `${WEBHOOK_SERVER_URL}/${WEBHOOK_TOKEN_ID}`,
+      method: 'POST',
+      headers: webhookIapHeader,
+    },
+    applicationResult: {
+      url: `${WEBHOOK_SERVER_URL}/${WEBHOOK_TOKEN_ID}`,
+      method: 'POST',
+      headers: webhookIapHeader,
+    },
+  };
 
   const curlCmd = [
     `curl -X POST '${PREVIEW_URL}/ai-gateway/batch-upload'`,

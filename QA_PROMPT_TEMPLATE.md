@@ -45,7 +45,7 @@ Claude auto-detects the mode based on what the operator provides:
 
 | Variable | Required | Notes |
 |---|---|---|
-| `VERIFYIQ_SERVICE_URL` | Yes | Preview or dev URL (e.g. `https://pr-304---ai-boostform-api-preview-z6thvhgnxa-uc.a.run.app`) |
+| `VERIFYIQ_SERVICE_URL` | Yes | Preview or dev URL (e.g. `https://ai-parser-pr-304-z6thvhgnxa-uc.a.run.app`) |
 | `VERIFYIQ_API_KEY` | Yes | Tenant API key (`sk_...`) |
 | `GH_TOKEN` | Yes | GitHub PAT for PR comments |
 | `PR_REPO` | Yes | `owner/repo` (e.g. `boost-capital/ai-parser-studio`) |
@@ -121,8 +121,8 @@ GET  /ai-gateway/health/gateway-circuit-breakers — circuit breaker status
 GET  /ai-gateway/health/detailed                — detailed health check
 POST /ai-gateway/batch-upload                   — ASYNC gateway
                                   Request MUST be wrapped:
-                                  { payload: { publicUserId, submissionId, documents: [...] },
-                                    callbacks: { documentResult: {...}, applicationResult: {...} } }
+                                  { payload: { publicUserId, submissionId, documents: [...] } }
+                                  (callbacks injected by runner at runtime — omit from TCs)
                                   Document fields: documentId, fileId, documentClassification,
                                     documentType, filename, preSignedUrl (NOT s3Url)
                                   documentClassification: "PRIMARY" (default) or "SUPPORTING"
@@ -157,6 +157,8 @@ POST /ai-gateway/batch-upload                   — ASYNC gateway
 
 ### POST /ai-gateway/batch-upload
 
+> **Do NOT include `callbacks` in generated test cases.** The runner (`run_qa.mjs`) injects real webhook URLs at runtime. Any `callbacks` block in a test case will be overwritten.
+
 ```json
 {
   "payload": {
@@ -170,18 +172,6 @@ POST /ai-gateway/batch-upload                   — ASYNC gateway
       "filename": "UnionBank-Transactions_2025-11-03_10-19-50.pdf",
       "preSignedUrl": "gs://qa-automation-dev/bank_financial/BankStatement/UnionBank-Transactions_2025-11-03_10-19-50.pdf"
     }]
-  },
-  "callbacks": {
-    "documentResult": {
-      "url": "https://verifyiq-webhook-server-<project>.us-central1.run.app/<token>",
-      "method": "POST",
-      "headers": { "Authorization": "Bearer <WEBHOOK_IAP_TOKEN>" }
-    },
-    "applicationResult": {
-      "url": "https://verifyiq-webhook-server-<project>.us-central1.run.app/<token>",
-      "method": "POST",
-      "headers": { "Authorization": "Bearer <WEBHOOK_IAP_TOKEN>" }
-    }
   }
 }
 ```
@@ -236,6 +226,7 @@ Assess before generating test cases:
 - Never generate 401 test cases (auth is always provided by the runner)
 - Never generate `/v1/documents/fraud-status` cases
 - Never generate generic negative cases (missing file, missing fileType, empty items)
+- Never include `callbacks` in `/ai-gateway/batch-upload` payloads — the runner injects real webhook URLs at runtime
 - ALL test cases must directly test the specific PR change
 - NEVER use numeric index paths on arrays — use wildcard `*` instead
   - Good: `calculatedFields.*.pageNumber`

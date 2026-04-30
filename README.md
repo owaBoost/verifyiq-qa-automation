@@ -60,7 +60,7 @@ Open Claude Code in this folder and paste a QA prompt with PR details:
 
 ```
 PR Number: 289
-Preview URL: https://pr-289---ai-boostform-api-preview-z6thvhgnxa-uc.a.run.app
+Preview URL: https://ai-parser-pr-289-z6thvhgnxa-uc.a.run.app
 ClickUp Tasks: 86b919n51
 ```
 
@@ -74,7 +74,7 @@ ClickUp Tasks: 86b919n51
 | `IAP_CLIENT_ID` | yes | OAuth client ID from GCP IAP settings |
 | `DEV_URL` | optional | Dev environment URL (defaults to `https://parser-dev.boostkh.com`) |
 | `VERIFYIQ_SERVICE_URL` | optional | Preview URL candidate (probed during `--env auto`) |
-| `PREVIEW_URL_PATTERN` | optional | Preview URL template, e.g. `https://pr-{NUMBER}.preview.example.com` |
+| `PREVIEW_URL_PATTERN` | optional | Preview URL template, e.g. `https://ai-parser-pr-{NUMBER}-z6thvhgnxa-uc.a.run.app` |
 | `CLICKUP_API_TOKEN` | optional | ClickUp API token (for `--clickup` context + result posting) |
 | `CLICKUP_FOLDER_ID` | optional | ClickUp folder ID (defaults to `90147709410`) |
 | `PR_REPO` | optional | Default PR repo (overridden by `--pr` flag) |
