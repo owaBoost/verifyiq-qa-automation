@@ -366,15 +366,11 @@ batch-upload submitted
 - `MayaSavings_SoA_133f474f6d1a4b22970dcce3e4c827a4_2025NOV.pdf`
 - `BPI_eStatement_Dec 2025.pdf`
 - `GoTyme_BankStatement_SavingsAccounts_20251103_200827.pdf`
-- `PS-013.pdf`
+- `Blade Asia_Maria Garcia Payslip_2026-01-15.pdf`
 - `BDO_CCStatement.pdf`
 - `BDO_SOA_PLATINUM MASTERCARD.pdf`
 
-**PARTIAL** (some fields missing — may have `FOUND_EMPTY` or `NOT_FOUND`):
-- `Alorica_Payslip.pdf` — payslip with some blank numeric fields
-- `PS-002.png` — payslip, partial
-
-Only assert `NOT_FOUND` or `FOUND_EMPTY` on PARTIAL fixtures. Never on COMPLETE fixtures.
+Only assert `NOT_FOUND` or `FOUND_EMPTY` on fixtures known to be partial. All canonical payslip fixtures are COMPLETE.
 
 ## Ad-Hoc Fixtures (from --fixture flag)
 

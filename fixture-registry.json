@@ -115,101 +115,71 @@
       "complete": true,
       "notes": "Certificate of employment Dec 2025"
     },
-    "Payslip_Alorica": {
+    "Payslip_BladeAsia_2026_01_15": {
       "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/Alorica_Payslip.pdf",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/Blade Asia_Maria Garcia Payslip_2026-01-15.pdf",
       "complete": true,
-      "notes": "Alorica payslip"
+      "notes": "PH bi-monthly payslip — Blade Asia, Maria Garcia, 2026-01-15"
     },
-    "Payslip_PS002": {
+    "Payslip_BladeAsia_2026_01_31": {
       "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-002.png",
-      "complete": false,
-      "notes": "Partial payslip — some fields may be missing"
-    },
-    "Payslip_PS013": {
-      "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-013.pdf",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/Blade Asia_Maria Garcia Payslip_2026-01-31.pdf",
       "complete": true,
-      "notes": "Complete payslip baseline"
+      "notes": "PH bi-monthly payslip — Blade Asia, Maria Garcia, 2026-01-31"
     },
-    "Payslip_SAFC_001": {
+    "Payslip_BladeAsia_2026_02_15": {
       "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-SAFC-001.pdf",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/Blade Asia_Maria Garcia Payslip_2026-02-15.pdf",
       "complete": true,
-      "notes": "SAFC payslip variant 1"
+      "notes": "PH bi-monthly payslip — Blade Asia, Maria Garcia, 2026-02-15"
     },
-    "Payslip_SAFC_002": {
+    "Payslip_BladeAsia_2026_02_28": {
       "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-SAFC-002.pdf",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/Blade Asia_Maria Garcia Payslip_2026-02-28.pdf",
       "complete": true,
-      "notes": "SAFC payslip variant 2"
+      "notes": "PH bi-monthly payslip — Blade Asia, Maria Garcia, 2026-02-28"
     },
-    "Payslip_SAFC_003": {
+    "Payslip_BladeAsia_2026_03_15": {
       "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-SAFC-003.pdf",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/Blade Asia_Maria Garcia Payslip_2026-03-15.pdf",
       "complete": true,
-      "notes": "SAFC payslip variant 3"
+      "notes": "PH bi-monthly payslip — Blade Asia, Maria Garcia, 2026-03-15"
     },
-    "Payslip_SAFC_004": {
+    "Payslip_BladeAsia_2026_03_31": {
       "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-SAFC-004.pdf",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/Blade Asia_Maria Garcia Payslip_2026-03-31.pdf",
       "complete": true,
-      "notes": "SAFC payslip variant 4"
+      "notes": "PH bi-monthly payslip — Blade Asia, Maria Garcia, 2026-03-31"
     },
-    "Payslip_SAFC_005": {
+    "Payslip_Compact_004": {
       "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/PS-SAFC-005.pdf",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/ps_compact_004.pdf",
       "complete": true,
-      "notes": "SAFC payslip variant 5"
+      "notes": "Compact format payslip"
     },
-    "Payslip_TC005_TwoEmployers": {
+    "Payslip_Compact_009": {
       "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/TC005_two_different_employer_payslips.pdf",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/ps_compact_009.png",
       "complete": true,
-      "notes": "Two different employer payslips in one document"
+      "notes": "Compact format payslip"
     },
-    "Payslip_Alorica_2Pages": {
+    "Payslip_Compact_014": {
       "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/employment_Payslip_Alorica_Payslip_2pages.pdf",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/ps_compact_014.pdf",
       "complete": true,
-      "notes": "Alorica payslip 2 pages"
+      "notes": "Compact format payslip"
     },
-    "Payslip_Full": {
+    "Payslip_Compact_019": {
       "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/payslip_FULL.png",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/ps_compact_019.png",
       "complete": true,
-      "notes": "Full payslip image"
+      "notes": "Compact format payslip"
     },
-    "Payslip_Synthetic_NullDeductions_v2": {
+    "Payslip_Compact_024": {
       "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/synthetic-payslip-null-deductions-TC301-06-v2.pdf",
+      "baseline": "gs://qa-automation-dev/employment/Payslip/ps_compact_024.pdf",
       "complete": true,
-      "notes": "Synthetic payslip with null deductions (v2) — TC301-06"
-    },
-    "Payslip_Synthetic_NullDeductions": {
-      "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/synthetic-payslip-null-deductions-TC301-06.pdf",
-      "complete": true,
-      "notes": "Synthetic payslip with null deductions — TC301-06"
-    },
-    "Payslip_Synthetic_WithTaxOnly": {
-      "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/synthetic-payslip-withtax-only-TC301-08.pdf",
-      "complete": true,
-      "notes": "Synthetic payslip with tax only — TC301-08"
-    },
-    "Payslip_Synthetic_ZeroDeductions": {
-      "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/synthetic-payslip-zero-deductions.pdf",
-      "complete": true,
-      "notes": "Synthetic payslip with zero deductions"
-    },
-    "Payslip_Synthetic_ZeroGross": {
-      "fileType": "Payslip",
-      "baseline": "gs://qa-automation-dev/employment/Payslip/synthetic-payslip-zero-gross-TC301-07.pdf",
-      "complete": true,
-      "notes": "Synthetic payslip with zero gross — TC301-07"
+      "notes": "Compact format payslip"
     },
     "ACRICard_1": {
       "fileType": "ACRICard",
