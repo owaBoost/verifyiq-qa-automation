@@ -365,6 +365,21 @@ batch-upload submitted
 
 Only assert `NOT_FOUND` or `FOUND_EMPTY` on PARTIAL fixtures. Never on COMPLETE fixtures.
 
+## Ad-Hoc Fixtures (from --fixture flag)
+
+When ad-hoc fixtures appear in the context (under "## Ad-Hoc Fixtures"), they are JSON
+objects with the same shape as registry fixtures: `{ file, fileType, source: "cli", complete: false, notes }`.
+
+**Generation rules for ad-hoc fixtures:**
+- Generate test cases that exercise each ad-hoc fixture across all applicable endpoints
+  (`/v1/documents/parse`, `/v1/documents/batch`, `/ai-gateway/batch-upload`). Different
+  endpoints may handle malformed inputs differently — exercise that surface.
+- Treat ad-hoc fixtures as PARTIAL (may be corrupted, wrong format, or empty) —
+  assert HTTP status codes only, not field values. Accept both 2xx and 4xx as valid.
+- If `fileType` is `"unknown"`, use `/v1/documents/parse` as the default endpoint
+  and omit the `fileType` field from the payload (let the API auto-detect or reject it).
+- Use the exact `gs://` path from the fixture object — do not modify it.
+
 ## Output Format
 
 Your entire response must be a single ` ```json ` code block containing `{"test_cases": [...]}`. No other text.

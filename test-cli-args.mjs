@@ -8,7 +8,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parsePrFlag, parseCliFlags, validateEnvFlag } from './run_qa.mjs';
+import { parsePrFlag, parseCliFlags, validateEnvFlag, parseFixtureFlag } from './run_qa.mjs';
 
 // ── parsePrFlag ────────────────────────────────────────────────────────────────
 
@@ -226,5 +226,102 @@ describe('validateEnvFlag — --env value validation', () => {
     assert.throws(() => validateEnvFlag('staging'), /Invalid --env value/);
     assert.throws(() => validateEnvFlag('prod'), /Invalid --env value/);
     assert.throws(() => validateEnvFlag('local'), /Invalid --env value/);
+  });
+});
+
+// ── parseFixtureFlag ──────────────────────────────────────────────────────────
+
+describe('parseFixtureFlag — ad-hoc fixture parsing', () => {
+
+  it('parses a plain gs:// path', () => {
+    const f = parseFixtureFlag('gs://qa-automation-dev/test/sample.pdf');
+    assert.equal(f.file, 'gs://qa-automation-dev/test/sample.pdf');
+    assert.equal(f.source, 'cli');
+    assert.equal(f.complete, false);
+  });
+
+  it('parses explicit FileType:gs:// prefix', () => {
+    const f = parseFixtureFlag('BankStatement:gs://my-bucket/statement.pdf');
+    assert.equal(f.file, 'gs://my-bucket/statement.pdf');
+    assert.equal(f.fileType, 'BankStatement');
+  });
+
+  it('infers fileType from GCS folder name', () => {
+    const f = parseFixtureFlag('gs://bucket/some-path/Payslip/file.pdf');
+    assert.equal(f.fileType, 'Payslip');
+  });
+
+  it('infers fileType from case-insensitive folder alias', () => {
+    const f = parseFixtureFlag('gs://bucket/electricity bill/meralco.jpg');
+    assert.equal(f.fileType, 'ElectricUtilityBillingStatement');
+  });
+
+  it('falls back to unknown for unmapped paths (no error)', () => {
+    const f = parseFixtureFlag('gs://my-bucket/random-folder/file.pdf');
+    assert.equal(f.fileType, 'unknown');
+    assert.equal(f.source, 'cli');
+  });
+
+  it('rejects non-gs:// scheme', () => {
+    assert.throws(
+      () => parseFixtureFlag('s3://wrong-scheme/path.pdf'),
+      /Invalid GCS URI/,
+    );
+  });
+
+  it('rejects malformed gs:// URI (no path after bucket)', () => {
+    assert.throws(
+      () => parseFixtureFlag('gs://invalid'),
+      /Invalid GCS URI/,
+    );
+  });
+
+  it('rejects http:// URI', () => {
+    assert.throws(
+      () => parseFixtureFlag('https://example.com/file.pdf'),
+      /Invalid GCS URI/,
+    );
+  });
+
+  it('rejects empty string', () => {
+    assert.throws(
+      () => parseFixtureFlag(''),
+      /Invalid GCS URI/,
+    );
+  });
+
+  it('explicit fileType takes precedence over inference', () => {
+    // Path contains "Payslip" but explicit type is BankStatement
+    const f = parseFixtureFlag('BankStatement:gs://bucket/Payslip/file.pdf');
+    assert.equal(f.fileType, 'BankStatement');
+  });
+});
+
+// ── --fixture in parseCliFlags ────────────────────────────────────────────────
+
+describe('parseCliFlags — --fixture flag', () => {
+
+  it('--fixture accumulates multiple values', () => {
+    const flags = parseCliFlags([
+      '--fixture', 'gs://bucket/a.pdf',
+      '--fixture', 'gs://bucket/b.pdf',
+    ]);
+    assert.deepEqual(flags.fixture, ['gs://bucket/a.pdf', 'gs://bucket/b.pdf']);
+  });
+
+  it('--fixture is undefined when not provided', () => {
+    const flags = parseCliFlags([]);
+    assert.equal(flags.fixture, undefined);
+  });
+
+  it('--fixture works with --pr and --clickup', () => {
+    const flags = parseCliFlags([
+      '--pr', 'org/repo#1',
+      '--clickup', 'abc',
+      '--fixture', 'gs://b/f.pdf',
+    ]);
+    assert.equal(flags.pr, 'org/repo#1');
+    assert.deepEqual(flags.clickup, ['abc']);
+    assert.deepEqual(flags.fixture, ['gs://b/f.pdf']);
   });
 });

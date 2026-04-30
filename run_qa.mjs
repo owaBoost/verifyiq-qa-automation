@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import { execSync } from 'child_process';
 import { parseArgs } from 'node:util';
 import { getGoogleIdToken } from './utils/iap-auth.js';
+import { mapFolderToFileType } from './utils/gcs-fixture-loader.mjs';
 
 // ── CLI argument parsing ─────────────────────────────────────────────────────
 
@@ -38,6 +39,58 @@ export function parsePrFlag(value) {
  * Parse CLI flags from an argv array. Exported for testing.
  * @param {string[]} argv  Defaults to process.argv.slice(2)
  */
+/** Valid GCS URI pattern: gs://bucket-name/path */
+const GCS_URI_RE = /^gs:\/\/[a-z0-9][-a-z0-9._]*\/.+$/;
+
+/**
+ * Parse a single --fixture flag value into a fixture object.
+ * Accepts `[FileType:]gs://bucket/path`.
+ *
+ * fileType resolution (best-effort):
+ *   1. Explicit prefix  →  use it
+ *   2. mapFolderToFileType on the deepest folder segment  →  use if known
+ *   3. Otherwise  →  'unknown' (no error)
+ *
+ * @param {string} value  e.g. "BankStatement:gs://bucket/file.pdf" or "gs://bucket/file.pdf"
+ * @returns {{ file: string, fileType: string, source: 'cli', complete: false, notes: string }}
+ */
+export function parseFixtureFlag(value) {
+  let fileType = null;
+  let uri = value;
+
+  // Check for explicit FileType: prefix
+  const colonIdx = value.indexOf(':gs://');
+  if (colonIdx > 0) {
+    fileType = value.slice(0, colonIdx);
+    uri = value.slice(colonIdx + 1);
+  }
+
+  // Validate GCS URI shape
+  if (!GCS_URI_RE.test(uri)) {
+    throw new Error(
+      `Invalid GCS URI: "${uri}". Expected format: gs://bucket-name/path/to/file`,
+    );
+  }
+
+  // Best-effort fileType inference from path
+  if (!fileType) {
+    const segments = uri.replace(/^gs:\/\/[^/]+\//, '').split('/');
+    // Try each path segment from deepest folder up (skip the filename)
+    for (let i = segments.length - 2; i >= 0; i--) {
+      const mapped = mapFolderToFileType(segments[i]);
+      if (mapped) { fileType = mapped; break; }
+    }
+  }
+
+  return {
+    file: uri,
+    fileType: fileType || 'unknown',
+    source: 'cli',
+    complete: false,
+    notes: 'Ad-hoc fixture from --fixture flag',
+  };
+}
+
 /**
  * Validate --env flag value. Exported for testing.
  * @param {string|undefined} value
@@ -57,6 +110,7 @@ export function parseCliFlags(argv) {
     options: {
       pr:              { type: 'string' },
       clickup:         { type: 'string', multiple: true },
+      fixture:         { type: 'string', multiple: true },
       env:             { type: 'string', default: 'auto' },
       'diff-source':   { type: 'string', default: 'github' },
       'diff-file':     { type: 'string' },
@@ -82,6 +136,9 @@ Usage: node run_qa.mjs [options]
 Options:
   --pr <owner/repo#number>    PR to test (e.g. owaBoost/verifyiq-Dev#42)
   --clickup <task-id>         ClickUp task for AC context (repeatable)
+  --fixture <[Type:]gs://...> Ad-hoc fixture file (repeatable)
+                                gs://bucket/path.pdf — infer fileType from path
+                                BankStatement:gs://bucket/path.pdf — explicit type
   --env <auto|preview|dev>    Target environment (default: auto)
                                 auto    — probe preview, fall back to dev
                                 preview — require preview, error if unreachable
@@ -570,7 +627,7 @@ async function fetchDiff(repo, number, source, filePath) {
  * @param {{ diff?: string, clickUpContext?: string }} context
  * @returns {object} The parsed test-cases JSON
  */
-function generateTestCases({ diff, clickUpContext } = {}) {
+function generateTestCases({ diff, clickUpContext, adHocFixtures } = {}) {
   console.log('→ Generating test cases via Claude Code CLI...');
 
   const template = readFileSync('QA_PROMPT_TEMPLATE.md', 'utf8');
@@ -587,6 +644,17 @@ function generateTestCases({ diff, clickUpContext } = {}) {
   }
 
   promptParts.push('', '## Fixture Registry (fixture-registry.json)', '```json', registry, '```');
+
+  if (adHocFixtures?.length) {
+    promptParts.push(
+      '',
+      '## Ad-Hoc Fixtures (from --fixture flag)',
+      '',
+      '```json',
+      JSON.stringify(adHocFixtures, null, 2),
+      '```',
+    );
+  }
 
   const prompt = promptParts.join('\n');
 
@@ -2757,8 +2825,8 @@ async function runBaselineHealthChecks() {
 
 async function main() {
   // Require at least one input source (unless re-running existing TCs)
-  if (!cliFlags['skip-generation'] && !cliFlags.pr && !cliFlags.clickup?.length) {
-    console.error('Error: provide --pr <owner/repo#number> or --clickup <task-id> (or both).');
+  if (!cliFlags['skip-generation'] && !cliFlags.pr && !cliFlags.clickup?.length && !cliFlags.fixture?.length) {
+    console.error('Error: provide --pr <owner/repo#number>, --clickup <task-id>, or --fixture <gs://...> (or combine them).');
     console.error('See --help for examples.');
     process.exit(1);
   }
@@ -2771,7 +2839,19 @@ async function main() {
   // Can only post to a PR if we have one
   const shouldPost = !DISABLE_REMOTE_POSTING && !cliFlags['dry-run'] && !cliFlags['no-comment'] && !!cliFlags.pr;
 
-  // ── Orchestration: diff + ClickUp → generate → run → post ─────────────────
+  // ── Parse ad-hoc fixtures from --fixture flags ──────────────────────────────
+  let adHocFixtures = [];
+  if (cliFlags.fixture?.length) {
+    for (const raw of cliFlags.fixture) {
+      adHocFixtures.push(parseFixtureFlag(raw));
+    }
+    console.log(`→ ${adHocFixtures.length} ad-hoc fixture(s) from --fixture flags`);
+    for (const f of adHocFixtures) {
+      console.log(`  • ${f.fileType}: ${f.file}`);
+    }
+  }
+
+  // ── Orchestration: diff + ClickUp + fixtures → generate → run → post ──────
   if (!cliFlags['skip-generation']) {
     let diff = null;
     let clickUpContext = '';
@@ -2788,8 +2868,8 @@ async function main() {
       clickUpContext = await fetchClickUpContext(cliFlags.clickup);
     }
 
-    if (diff || clickUpContext) {
-      generateTestCases({ diff, clickUpContext });
+    if (diff || clickUpContext || adHocFixtures.length) {
+      generateTestCases({ diff, clickUpContext, adHocFixtures });
     }
   }
 
