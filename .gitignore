@@ -22,3 +22,5 @@ memory/
 
 # Tool run artifacts
 test-results/
+qa-runs/
+qa-suites/

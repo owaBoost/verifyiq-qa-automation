@@ -12,7 +12,7 @@
 import 'dotenv/config';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
 import { parseArgs } from 'node:util';
 import { getGoogleIdToken } from './utils/iap-auth.js';
@@ -130,6 +130,7 @@ export function parseCliFlags(argv) {
       'diff-file':     { type: 'string' },
       'dry-run':       { type: 'boolean', default: false },
       'skip-generation': { type: 'boolean', default: false },
+      regenerate:      { type: 'boolean', default: false },
       'no-comment':    { type: 'boolean', default: false },
       help:            { type: 'boolean', default: false },
     },
@@ -137,6 +138,25 @@ export function parseCliFlags(argv) {
     allowPositionals: true,
   });
   return values;
+}
+
+/**
+ * Derive a stable slug from --pr or --clickup flags for suite file naming.
+ * PR slug takes priority over ClickUp slug when both are provided.
+ *
+ * @param {{ pr?: string, clickup?: string[] }} flags  Parsed CLI flags
+ * @returns {string|null}  e.g. "pr-boost-capital-ai-parser-studio-385" or null
+ */
+export function suiteSlug(flags) {
+  if (flags.pr) {
+    // "boost-capital/ai-parser-studio#385" → "pr-boost-capital-ai-parser-studio-385"
+    return 'pr-' + flags.pr.toLowerCase().replace(/[/#]/g, '-').replace(/[^a-z0-9-]/g, '');
+  }
+  if (flags.clickup?.length) {
+    // Use first ClickUp task ID
+    return 'clickup-' + flags.clickup[0].toLowerCase().replace(/[^a-z0-9-]/g, '');
+  }
+  return null;
 }
 
 const cliFlags = parseCliFlags(process.argv.slice(2));
@@ -164,6 +184,8 @@ Options:
   --diff-file <path>          Path to diff file (requires --diff-source file)
   --dry-run                   Run tests but skip posting PR comment
   --skip-generation           Use existing test-cases.json instead of regenerating
+  --regenerate                Force fresh test-case generation even if a saved
+                                suite exists in qa-suites/
   --no-comment                Skip posting PR comment (tests still run)
   --help                      Show this help message
 
@@ -2851,6 +2873,172 @@ async function runBaselineHealthChecks() {
   console.log('  ✓ All baseline health checks passed\n');
 }
 
+// ── Run summary report ───────────────────────────────────────────────────────
+
+const GENERIC_FIELDS = new Set([
+  'basicPay', 'grossPay', 'netPay', 'employee_name', 'employer_name',
+]);
+
+function classifyAssertedField(path) {
+  // Extract the terminal field name from paths like "documentData.*.grossPay"
+  const parts = path.split('.');
+  return parts[parts.length - 1];
+}
+
+function generateRunSummary(results, testCases) {
+  const date = new Date().toISOString().slice(0, 10);
+  const slug = PR_NUMBER ? `pr${PR_NUMBER}` : 'manual-run';
+  const filename = `${date}-${slug}.md`;
+
+  const passed = results.filter(r => r.passed).length;
+  const total = results.length;
+  const verdict = passed === total ? 'PASS' : passed > 0 ? 'PARTIAL' : 'FAIL';
+  const icon = passed === total ? '✅' : passed > 0 ? '⚠️' : '❌';
+
+  // Collect all failures
+  const failures = [];
+  const httpStatusViolations = [];
+  const ticketScopedFields = new Set();
+  const genericFieldsAsserted = new Set();
+
+  for (const r of results) {
+    // Find matching TC for assertion details
+    const tc = testCases.find(t => t.id === r.id);
+
+    // Check each assertion for field classification
+    if (tc?.assertions) {
+      for (const a of tc.assertions) {
+        if (a.anyOf) {
+          for (const alt of a.anyOf) {
+            const f = classifyAssertedField(alt.path);
+            if (GENERIC_FIELDS.has(f)) genericFieldsAsserted.add(f);
+            else ticketScopedFields.add(f);
+          }
+        } else if (a.path) {
+          // HTTP status path isn't a field
+          if (a.path === 'HTTP status') continue;
+          // Skip non-document fields (fraudScore, authenticityScore, completenessScore)
+          if (!a.path.includes('.') && !GENERIC_FIELDS.has(a.path)) continue;
+          const f = classifyAssertedField(a.path);
+          if (GENERIC_FIELDS.has(f)) genericFieldsAsserted.add(f);
+          else ticketScopedFields.add(f);
+        }
+      }
+    }
+
+    if (!r.passed) {
+      // Check for HTTP status assertion violations
+      if (r.assertionResults) {
+        for (const ar of r.assertionResults) {
+          if (ar.path === 'HTTP status' && !ar.passed) {
+            httpStatusViolations.push(r.id);
+          }
+        }
+      }
+
+      // Build failure entry
+      const failedAr = r.assertionResults?.find(ar => !ar.passed);
+      const entry = { id: r.id };
+      if (failedAr) {
+        entry.assertion = failedAr.description;
+        entry.expected = failedAr.expected;
+        entry.actual = failedAr.actual;
+        // Triage hint for common patterns
+        if (failedAr.path === 'HTTP status') {
+          entry.likely = 'API error or auth issue — check service health';
+        } else if (failedAr.actual === '(not found)') {
+          entry.likely = 'field missing from response — check parser mapping';
+        }
+      } else {
+        entry.assertion = r.actualResult;
+        entry.expected = '(pass)';
+        entry.actual = r.actualResult;
+      }
+      failures.push(entry);
+    }
+  }
+
+  // Build the report
+  const lines = [];
+  lines.push(`═══════════════════════════════════════════════════════`);
+  lines.push(`QA RUN SUMMARY — ${date}`);
+  lines.push(`Target: ${PR_NUMBER ? `PR #${PR_NUMBER}` : 'manual run'}`);
+  lines.push(`Result: ${verdict} ${icon}  (${passed}/${total})`);
+  lines.push(`═══════════════════════════════════════════════════════`);
+  lines.push(``);
+
+  // Failures
+  lines.push(`FAILURES`);
+  lines.push(`────────`);
+  if (failures.length === 0) {
+    lines.push(`None.`);
+  } else {
+    for (const f of failures) {
+      lines.push(`${f.id}`);
+      lines.push(`         assertion: ${f.assertion}`);
+      lines.push(`         expected: ${f.expected}`);
+      lines.push(`         actual:   ${f.actual}`);
+      if (f.likely) {
+        lines.push(`         likely:   ${f.likely}`);
+      }
+    }
+  }
+  lines.push(``);
+
+  // Assertion scope check
+  lines.push(`ASSERTION SCOPE CHECK`);
+  lines.push(`─────────────────────`);
+  lines.push(`Ticket-scoped fields asserted:`);
+  if (ticketScopedFields.size === 0) {
+    lines.push(`  (none detected)`);
+  } else {
+    for (const f of [...ticketScopedFields].sort()) {
+      lines.push(`  ✓ ${f}`);
+    }
+  }
+
+  const genericCount = genericFieldsAsserted.size;
+  const genericVerdict = genericCount === 0 ? 'good — rule holding' : 'REVIEW';
+  lines.push(`Generic fields asserted:  ${genericCount}  ("${genericVerdict}")`);
+  if (genericCount > 0) {
+    lines.push(`  ${[...genericFieldsAsserted].sort().join(', ')}`);
+  }
+  lines.push(``);
+
+  // Notes
+  lines.push(`NOTES`);
+  lines.push(`─────`);
+
+  if (httpStatusViolations.length > 0) {
+    lines.push(`- ⚠ HTTP status assertion detected in ${httpStatusViolations.join(', ')}`);
+  }
+
+  const skipped = results.filter(r => r.actualResult?.includes('SKIPPED'));
+  if (skipped.length > 0) {
+    lines.push(`- ${skipped.length} test case(s) skipped (fixture unavailable)`);
+  }
+
+  if (failures.length === 0 && httpStatusViolations.length === 0 && skipped.length === 0) {
+    lines.push(`- Clean run, no issues.`);
+  } else if (httpStatusViolations.length === 0 && skipped.length === 0 && failures.length > 0) {
+    lines.push(`- ${failures.length} assertion failure(s) — see FAILURES above.`);
+  }
+
+  lines.push(`═══════════════════════════════════════════════════════`);
+
+  const report = lines.join('\n');
+
+  // Write to qa-runs/
+  const dir = 'qa-runs';
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(`${dir}/${filename}`, report + '\n', 'utf8');
+
+  // Print to stdout
+  console.log('\n' + report);
+
+  return { filename, report };
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -2882,7 +3070,32 @@ async function main() {
   }
 
   // ── Orchestration: diff + ClickUp + fixtures → generate → run → post ──────
-  if (!cliFlags['skip-generation']) {
+  // Suite persistence: save/load test cases per PR/ticket so re-runs are stable.
+  const slug = cliFlags['skip-generation'] ? null : suiteSlug(cliFlags);
+  const suiteDir = 'qa-suites';
+  const suitePath = slug ? `${suiteDir}/${slug}.json` : null;
+
+  if (cliFlags['skip-generation']) {
+    // Power-user path: use test-cases.json directly, no suite logic
+  } else if (suitePath && existsSync(suitePath) && !cliFlags.regenerate) {
+    // Existing suite found — reuse it
+    const raw = readFileSync(suitePath, 'utf8');
+    const suite = JSON.parse(raw);
+    const mtime = new Date(JSON.parse(JSON.stringify(
+      // stat is sync, but we just need the date from the file content
+      suite._generated || '(unknown date)'
+    )));
+    console.log(`→ Loaded existing suite from ${suitePath} (${suite.test_cases?.length ?? 0} test cases)`);
+    console.log(`  Reusing existing suite from ${suite._generated || 'unknown date'}. Use --regenerate to create fresh test cases.`);
+    writeFileSync('test-cases.json', JSON.stringify(suite, null, 2));
+  } else {
+    // Generate fresh test cases
+    if (cliFlags.regenerate && suitePath && existsSync(suitePath)) {
+      console.log(`→ --regenerate flag set, regenerating test cases (overwriting ${suitePath})`);
+    } else if (suitePath) {
+      console.log(`→ No existing suite found, generating fresh...`);
+    }
+
     let diff = null;
     let clickUpContext = '';
 
@@ -2900,6 +3113,15 @@ async function main() {
 
     if (diff || clickUpContext || adHocFixtures.length) {
       generateTestCases({ diff, clickUpContext, adHocFixtures });
+    }
+
+    // Persist to suite file for future re-runs
+    if (suitePath && existsSync('test-cases.json')) {
+      if (!existsSync(suiteDir)) mkdirSync(suiteDir, { recursive: true });
+      const generated = JSON.parse(readFileSync('test-cases.json', 'utf8'));
+      generated._generated = new Date().toISOString();
+      writeFileSync(suitePath, JSON.stringify(generated, null, 2));
+      console.log(`  ✓ Suite saved to ${suitePath}`);
     }
   }
 
@@ -2984,7 +3206,7 @@ async function main() {
       await updateClickUpTask(taskId, tc, actualResult, passed, curlCmd, failedAssertions, assertionResults, responseBody);
 
       console.log(`  ${passed ? '✅' : '❌'} ${tc.id}: ${actualResult}`);
-      results.push({ ...tc, passed, actualResult, taskId, taskUrl });
+      results.push({ ...tc, passed, actualResult, assertionResults, taskId, taskUrl });
     }
   } finally {
     if (hasBatchTests) {
@@ -3001,6 +3223,10 @@ async function main() {
 
   const passedCount = results.filter(r => r.passed).length;
   console.log(`\n→ Done. ${passedCount}/${results.length} passed.`);
+
+  // Generate structured run summary
+  generateRunSummary(results, testCases);
+
   if (passedCount < results.length) process.exit(1);
 }
 
