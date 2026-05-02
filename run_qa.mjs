@@ -12,7 +12,7 @@
 import 'dotenv/config';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync } from 'fs';
 import { execSync } from 'child_process';
 import { parseArgs } from 'node:util';
 import { getGoogleIdToken } from './utils/iap-auth.js';
@@ -2885,7 +2885,232 @@ function classifyAssertedField(path) {
   return parts[parts.length - 1];
 }
 
-function generateRunSummary(results, testCases) {
+// ── Run history (append-only JSONL per suite) ────────────────────────────────
+
+const HISTORY_DIR = 'qa-runs/.history';
+const MAX_HISTORY_ENTRIES = 100;
+
+/**
+ * Read previous run entries for a suite from its JSONL history file.
+ * Returns an array of parsed objects (most recent last).
+ */
+function readHistory(suiteSlugValue) {
+  const path = `${HISTORY_DIR}/${suiteSlugValue}.jsonl`;
+  if (!existsSync(path)) return [];
+  const lines = readFileSync(path, 'utf8').trim().split('\n').filter(Boolean);
+  return lines.map(l => JSON.parse(l));
+}
+
+/**
+ * Append one run record to the suite's JSONL history file.
+ * Truncates to MAX_HISTORY_ENTRIES if needed.
+ */
+function appendHistory(suiteSlugValue, record) {
+  if (!existsSync(HISTORY_DIR)) mkdirSync(HISTORY_DIR, { recursive: true });
+  const path = `${HISTORY_DIR}/${suiteSlugValue}.jsonl`;
+  appendFileSync(path, JSON.stringify(record) + '\n', 'utf8');
+
+  // Truncate if over limit
+  const lines = readFileSync(path, 'utf8').trim().split('\n').filter(Boolean);
+  if (lines.length > MAX_HISTORY_ENTRIES) {
+    writeFileSync(path, lines.slice(lines.length - MAX_HISTORY_ENTRIES).join('\n') + '\n', 'utf8');
+  }
+}
+
+/**
+ * Build a run record from current results.
+ */
+function buildRunRecord(suiteSlugValue, results) {
+  return {
+    timestamp: new Date().toISOString(),
+    suite: suiteSlugValue,
+    results: results.map(r => {
+      const entry = { tc_id: r.id, passed: r.passed, title: r.title || '' };
+      if (!r.passed) {
+        const failedAr = r.assertionResults?.find(ar => !ar.passed);
+        entry.failure_reason = failedAr
+          ? `${failedAr.description}: expected ${failedAr.expected}, got ${failedAr.actual}`
+          : (r.actualResult || 'unknown');
+      }
+      return entry;
+    }),
+  };
+}
+
+/**
+ * Compare current run results against the previous run for the same suite.
+ * Returns { previousTimestamp, fixed, regressed, stillFailing, stillPassingCount, newTcs, goneTcs, suiteRegenerated }
+ */
+function compareRuns(currentResults, previousEntry) {
+  if (!previousEntry) return null;
+
+  const prevMap = new Map();
+  for (const r of previousEntry.results) {
+    prevMap.set(r.tc_id, r);
+  }
+
+  // Build a title-based fallback map for unmatched TCs
+  const prevByTitle = new Map();
+  for (const r of previousEntry.results) {
+    if (r.title) prevByTitle.set(r.title, r);
+  }
+
+  const fixed = [];
+  const regressed = [];
+  const stillFailing = [];
+  let stillPassingCount = 0;
+  const newTcs = [];
+  const matchedPrevIds = new Set();
+
+  for (const cur of currentResults) {
+    let prev = prevMap.get(cur.tc_id);
+    if (prev) {
+      matchedPrevIds.add(cur.tc_id);
+    } else if (cur.title && prevByTitle.has(cur.title)) {
+      prev = prevByTitle.get(cur.title);
+      matchedPrevIds.add(prev.tc_id);
+    }
+
+    if (!prev) {
+      newTcs.push(cur);
+      continue;
+    }
+
+    if (prev.passed && cur.passed) {
+      stillPassingCount++;
+    } else if (!prev.passed && cur.passed) {
+      fixed.push(cur);
+    } else if (prev.passed && !cur.passed) {
+      regressed.push(cur);
+    } else {
+      // both failing
+      stillFailing.push(cur);
+    }
+  }
+
+  const goneTcs = previousEntry.results.filter(r => !matchedPrevIds.has(r.tc_id));
+  const suiteRegenerated = newTcs.length > 0 || goneTcs.length > 0;
+
+  return {
+    previousTimestamp: previousEntry.timestamp,
+    fixed,
+    regressed,
+    stillFailing,
+    stillPassingCount,
+    newTcs,
+    goneTcs,
+    suiteRegenerated,
+  };
+}
+
+/**
+ * Count consecutive failures for a TC across history entries (most recent first).
+ */
+function consecutiveFailures(tcId, tcTitle, historyEntries) {
+  let count = 0;
+  for (let i = historyEntries.length - 1; i >= 0; i--) {
+    const entry = historyEntries[i];
+    const match = entry.results.find(r => r.tc_id === tcId || (tcTitle && r.title === tcTitle));
+    if (match && !match.passed) {
+      count++;
+    } else {
+      break;
+    }
+  }
+  return count;
+}
+
+/**
+ * Format the "CHANGES SINCE LAST RUN" section for the summary.
+ */
+function formatComparisonSection(comparison, historyEntries) {
+  if (!comparison) return 'First run for this suite — no comparison available.';
+
+  const lines = [];
+  lines.push('CHANGES SINCE LAST RUN');
+  lines.push('──────────────────────');
+
+  // Format relative time
+  const prevDate = new Date(comparison.previousTimestamp);
+  const now = new Date();
+  const diffMs = now - prevDate;
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffHours / 24);
+  let ago;
+  if (diffDays > 0) ago = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+  else if (diffHours > 0) ago = `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+  else ago = 'just now';
+  lines.push(`Last run: ${comparison.previousTimestamp} (${ago})`);
+
+  if (comparison.suiteRegenerated) {
+    lines.push('');
+    lines.push('Suite regenerated since last run — TC IDs may not align with previous run. Comparison limited.');
+  }
+
+  lines.push('');
+
+  // FIXED
+  lines.push(`✓ FIXED          (${comparison.fixed.length})`);
+  if (comparison.fixed.length === 0) {
+    lines.push('  None.');
+  } else {
+    for (const tc of comparison.fixed) {
+      lines.push(`  ${tc.tc_id || tc.id}  ${tc.title}`);
+    }
+  }
+
+  lines.push('');
+
+  // REGRESSED
+  lines.push(`✗ REGRESSED      (${comparison.regressed.length})`);
+  if (comparison.regressed.length === 0) {
+    lines.push('  None.');
+  } else {
+    for (const tc of comparison.regressed) {
+      lines.push(`  ${tc.tc_id || tc.id}  ${tc.title}`);
+    }
+  }
+
+  lines.push('');
+
+  // STILL FAILING
+  lines.push(`✗ STILL FAILING  (${comparison.stillFailing.length})`);
+  if (comparison.stillFailing.length === 0) {
+    lines.push('  None.');
+  } else {
+    for (const tc of comparison.stillFailing) {
+      const id = tc.tc_id || tc.id;
+      const consec = consecutiveFailures(id, tc.title, historyEntries);
+      // +1 for current run which isn't in history yet
+      const total = consec + 1;
+      const suffix = total >= 2 ? ` — failing for ${total} consecutive runs` : '';
+      lines.push(`  ${id}  ${tc.title}${suffix}`);
+    }
+  }
+
+  lines.push('');
+  lines.push(`Stable: ${comparison.stillPassingCount} still passing.`);
+
+  if (comparison.newTcs.length > 0) {
+    lines.push('');
+    lines.push(`NEW (${comparison.newTcs.length})`);
+    for (const tc of comparison.newTcs) {
+      lines.push(`  ${tc.tc_id || tc.id}  ${tc.title}`);
+    }
+  }
+
+  if (comparison.goneTcs.length > 0) {
+    lines.push('');
+    lines.push(`GONE (${comparison.goneTcs.length})`);
+    for (const tc of comparison.goneTcs) {
+      lines.push(`  ${tc.tc_id}  ${tc.title}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function generateRunSummary(results, testCases, suiteSlugValue) {
   const date = new Date().toISOString().slice(0, 10);
   const slug = PR_NUMBER ? `pr${PR_NUMBER}` : 'manual-run';
   const filename = `${date}-${slug}.md`;
@@ -3024,6 +3249,21 @@ function generateRunSummary(results, testCases) {
     lines.push(`- ${failures.length} assertion failure(s) — see FAILURES above.`);
   }
 
+  // Run-over-run comparison
+  let comparisonSection = '';
+  if (suiteSlugValue) {
+    const history = readHistory(suiteSlugValue);
+    const previousEntry = history.length > 0 ? history[history.length - 1] : null;
+    const comparison = compareRuns(
+      results.map(r => ({ tc_id: r.id, passed: r.passed, title: r.title || '' })),
+      previousEntry,
+    );
+    comparisonSection = formatComparisonSection(comparison, history);
+
+    lines.push('');
+    lines.push(comparisonSection);
+  }
+
   lines.push(`═══════════════════════════════════════════════════════`);
 
   const report = lines.join('\n');
@@ -3032,6 +3272,12 @@ function generateRunSummary(results, testCases) {
   const dir = 'qa-runs';
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(`${dir}/${filename}`, report + '\n', 'utf8');
+
+  // Append structured record to history
+  if (suiteSlugValue) {
+    const record = buildRunRecord(suiteSlugValue, results);
+    appendHistory(suiteSlugValue, record);
+  }
 
   // Print to stdout
   console.log('\n' + report);
@@ -3225,7 +3471,7 @@ async function main() {
   console.log(`\n→ Done. ${passedCount}/${results.length} passed.`);
 
   // Generate structured run summary
-  generateRunSummary(results, testCases);
+  generateRunSummary(results, testCases, slug);
 
   if (passedCount < results.length) process.exit(1);
 }
@@ -3252,4 +3498,10 @@ export {
   resolvePath,
   isFraudFlagged,
   MAPPING_FILES,
+  readHistory,
+  appendHistory,
+  buildRunRecord,
+  compareRuns,
+  consecutiveFailures,
+  formatComparisonSection,
 };
