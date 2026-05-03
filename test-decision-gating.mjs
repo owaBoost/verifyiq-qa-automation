@@ -22,6 +22,7 @@ import assert from 'node:assert/strict';
 
 import {
   validateBankStatementDocCallback,
+  validateApplicationCallback,
   crossValidateBankStatementTotals,
   groupBankStatementsByAccount,
   parseNumericAmount,
@@ -73,14 +74,14 @@ function buildDocCallback({ qualityScore, completenessScore, authenticityScore, 
 }
 
 /** Minimal application callback with matching totals. */
-function buildAppCallback({ totalDebit, totalCredit } = {}) {
+function buildAppCallback({ totalDebit, totalCredit, documents, crossCheckFindings } = {}) {
   return {
     applicationId: 'app-test-001',
     submissionId: 'sub-test-001',
     publicUserId: 'user-test-001',
     status: 'COMPLETED',
     ocrResult: {
-      documents: [{ documentType: 'BANK_STATEMENT' }],
+      documents: documents ?? [{ documentType: 'BANK_STATEMENT' }],
       computedFields: {
         BANK_STATEMENT: {
           available: true,
@@ -90,11 +91,48 @@ function buildAppCallback({ totalDebit, totalCredit } = {}) {
           gs_totalcredit_bankstatement: totalCredit ?? 5000.00,
           gs_inferredincome_bankstatement: 3500.00,
         },
-        crossCheckFindings: { anomalies: [] },
+        crossCheckFindings: crossCheckFindings ?? [],
       },
     },
   };
 }
+
+/** Build a realistic crossCheckFindings array. */
+function buildCrossCheckFindings(overrides = []) {
+  const defaults = [
+    {
+      field: 'name',
+      valuePrimary: ['MARIA SANTOS GARCIA', 'MARIA SANTOS GARCIA'],
+      valueSecondary: ['MARIA SANTOS GARCIA'],
+      match: true,
+      riskLevel: 'low',
+      description: 'All name values match across primary and secondary documents',
+    },
+    {
+      field: 'address',
+      valuePrimary: ['111 DON CARLOS PALANCA SAN LORENZO, MAKATI CITY 1229'],
+      valueSecondary: ['111 DON CARLOS PALANCA SAN LORENZO MAKATI 1229 MANILA'],
+      match: false,
+      riskLevel: 'medium',
+      description: 'Secondary document contains a different address',
+    },
+  ];
+  if (overrides.length > 0) return overrides;
+  return defaults;
+}
+
+/** Documents array for a multi-doc batch with mixed classifications. */
+const MULTI_DOC_MIXED = [
+  { documentType: 'BANK_STATEMENT', documentClassification: 'PRIMARY' },
+  { documentType: 'PAYSLIP', documentClassification: 'PRIMARY' },
+  { documentType: 'ELECTRICITY_BILL', documentClassification: 'SUPPORTING' },
+];
+
+/** Documents array for a multi-doc batch with 2+ PRIMARY of different types. */
+const MULTI_DOC_PRIMARY_ONLY = [
+  { documentType: 'BANK_STATEMENT', documentClassification: 'PRIMARY' },
+  { documentType: 'PAYSLIP', documentClassification: 'PRIMARY' },
+];
 
 /** Build a bankStatementDocTotals entry from a doc callback result. */
 function buildDocTotals(docCallback, scoreGating) {
@@ -699,5 +737,159 @@ describe('batch-upload business rule — crossValidation conditionality', () => 
       'crossValidation must NOT be emitted when docs are in different account groups');
     assert.equal(errors.length, 0,
       'no errors when account groups each have only 1 doc');
+  });
+});
+
+// ── crossCheckFindings validation ─────────────────────────────────────────────
+
+describe('crossCheckFindings validation (validateApplicationCallback)', () => {
+  it('single-doc batch: crossCheckFindings not asserted, no errors', () => {
+    // Single-doc batch — no crossCheckFindings validation at all
+    const cb = buildAppCallback({
+      documents: [{ documentType: 'BANK_STATEMENT', documentClassification: 'PRIMARY' }],
+      crossCheckFindings: null, // would fail on multi-doc, must pass on single-doc
+    });
+    const result = validateApplicationCallback(cb);
+    assert.ok(result.passed, `expected pass, got errors: ${result.allErrors.join('; ')}`);
+    assert.equal(result.crossCheckMismatches.length, 0);
+  });
+
+  it('multi-doc PRIMARY+SUPPORTING + crossCheckFindings: [] → passes with informational note', () => {
+    const cb = buildAppCallback({
+      documents: MULTI_DOC_MIXED,
+      crossCheckFindings: [],
+    });
+    const result = validateApplicationCallback(cb);
+    assert.ok(result.passed, `expected pass, got errors: ${result.allErrors.join('; ')}`);
+    assert.ok(
+      result.notes.some(n => n.includes('crossCheckFindings is empty')),
+      'should surface informational note about empty findings'
+    );
+  });
+
+  it('multi-doc + valid findings array, all match: true → passes, no mismatches', () => {
+    const findings = [
+      {
+        field: 'name',
+        valuePrimary: ['MARIA SANTOS GARCIA'],
+        valueSecondary: ['MARIA SANTOS GARCIA'],
+        match: true,
+        riskLevel: 'low',
+        description: 'Names match',
+      },
+    ];
+    const cb = buildAppCallback({
+      documents: MULTI_DOC_PRIMARY_ONLY,
+      crossCheckFindings: findings,
+    });
+    const result = validateApplicationCallback(cb);
+    assert.ok(result.passed, `expected pass, got errors: ${result.allErrors.join('; ')}`);
+    assert.equal(result.crossCheckMismatches.length, 0);
+  });
+
+  it('multi-doc + finding with match: false, riskLevel: "medium" → passes, mismatch surfaced', () => {
+    const findings = buildCrossCheckFindings(); // includes address mismatch (medium)
+    const cb = buildAppCallback({
+      documents: MULTI_DOC_MIXED,
+      crossCheckFindings: findings,
+    });
+    const result = validateApplicationCallback(cb);
+    assert.ok(result.passed, `expected pass (mismatches are informational), got errors: ${result.allErrors.join('; ')}`);
+    assert.equal(result.crossCheckMismatches.length, 1, 'one mismatch (address)');
+    assert.equal(result.crossCheckMismatches[0].field, 'address');
+    assert.equal(result.crossCheckMismatches[0].riskLevel, 'medium');
+  });
+
+  it('multi-doc + finding with match: false, riskLevel: "high" → passes, HIGH RISK surfaced', () => {
+    const findings = [
+      {
+        field: 'income',
+        valuePrimary: ['50000'],
+        valueSecondary: ['15000'],
+        match: false,
+        riskLevel: 'high',
+        description: 'Significant income discrepancy across documents',
+      },
+    ];
+    const cb = buildAppCallback({
+      documents: MULTI_DOC_MIXED,
+      crossCheckFindings: findings,
+    });
+    const result = validateApplicationCallback(cb);
+    assert.ok(result.passed, 'high-risk mismatch must NOT fail the test');
+    assert.equal(result.crossCheckMismatches.length, 1);
+    assert.equal(result.crossCheckMismatches[0].riskLevel, 'high');
+  });
+
+  it('multi-doc + crossCheckFindings: null → ERROR', () => {
+    const cb = buildAppCallback({
+      documents: MULTI_DOC_MIXED,
+      crossCheckFindings: null,
+    });
+    // Manually set to null since buildAppCallback defaults to []
+    cb.ocrResult.computedFields.crossCheckFindings = null;
+    const result = validateApplicationCallback(cb);
+    assert.ok(!result.passed, 'null crossCheckFindings on multi-doc must fail');
+    assert.ok(
+      result.allErrors.some(e => e.includes('missing ocrResult.computedFields.crossCheckFindings')),
+      'error message must mention missing crossCheckFindings'
+    );
+  });
+
+  it('multi-doc + crossCheckFindings: {} (object instead of array) → ERROR with type message', () => {
+    const cb = buildAppCallback({
+      documents: MULTI_DOC_MIXED,
+    });
+    cb.ocrResult.computedFields.crossCheckFindings = {};
+    const result = validateApplicationCallback(cb);
+    assert.ok(!result.passed, 'object crossCheckFindings must fail');
+    assert.ok(
+      result.allErrors.some(e => e.includes('must be an array, got object')),
+      'error must mention type'
+    );
+  });
+
+  it('multi-doc + finding missing required field (no riskLevel) → ERROR with shape message', () => {
+    const findings = [
+      {
+        field: 'name',
+        valuePrimary: ['MARIA'],
+        valueSecondary: ['MARIA'],
+        match: true,
+        // riskLevel intentionally omitted
+        description: 'Names match',
+      },
+    ];
+    const cb = buildAppCallback({
+      documents: MULTI_DOC_MIXED,
+      crossCheckFindings: findings,
+    });
+    const result = validateApplicationCallback(cb);
+    assert.ok(!result.passed, 'missing riskLevel must fail');
+    assert.ok(
+      result.allErrors.some(e => e.includes('crossCheckFindings[0] missing required field: riskLevel')),
+      'error must identify missing field'
+    );
+  });
+
+  it('bank-statement multi-doc batch → still validates crossCheckFindings (regression)', () => {
+    // This regression test confirms the old hasBankStatement gate being removed
+    // doesn't break bank-statement batches — they still get validated under the
+    // new multi-doc gate (2 PRIMARY docs of different types).
+    const docs = [
+      { documentType: 'BANK_STATEMENT', documentClassification: 'PRIMARY' },
+      { documentType: 'PAYSLIP', documentClassification: 'PRIMARY' },
+    ];
+    const cb = buildAppCallback({
+      documents: docs,
+      crossCheckFindings: null,
+    });
+    cb.ocrResult.computedFields.crossCheckFindings = null;
+    const result = validateApplicationCallback(cb);
+    assert.ok(!result.passed, 'bank-statement multi-doc with null crossCheckFindings must fail');
+    assert.ok(
+      result.allErrors.some(e => e.includes('crossCheckFindings')),
+      'error must reference crossCheckFindings'
+    );
   });
 });

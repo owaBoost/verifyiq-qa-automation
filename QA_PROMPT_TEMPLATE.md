@@ -378,6 +378,22 @@ batch-upload submitted
 - Single-doc batch tests should pass with only document + application callback validation.
 - `crossValidation` is conditional on: multiple documents + same account group + score eligibility.
 
+### crossCheckFindings (multi-doc batches)
+
+Multi-doc batches return `ocrResult.computedFields.crossCheckFindings` — an array of finding
+objects that compare fields across documents (e.g., name, address). The runner validates:
+
+- **Shape:** must be an array of objects with required fields (`field`, `valuePrimary`,
+  `valueSecondary`, `match`, `riskLevel`, `description`). ERRORs on null, wrong type, or
+  missing fields.
+- **Mismatches:** findings with `match: false` are surfaced in the test summary as
+  informational — they are NOT test failures. The API correctly flagging a mismatch is
+  correct behavior.
+
+Test cases for multi-doc batch-upload scenarios do **not** need to assert specific
+crossCheckFindings values unless the ticket is specifically about cross-check behavior.
+Keep assertions shallow per the Option A pattern — the runner performs the deep validation.
+
 ## Fixture Completeness Profile
 
 **COMPLETE** (all fields present — expect `FOUND_WITH_VALUE`):

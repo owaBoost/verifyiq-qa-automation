@@ -35,7 +35,30 @@
                 "gs_inferredincome_bankstatement": {}
               }
             },
-            "crossCheckFindings": {}
+            "crossCheckFindings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["field", "valuePrimary", "valueSecondary", "match", "riskLevel", "description"],
+                "properties": {
+                  "field": { "type": "string" },
+                  "valuePrimary": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "valueSecondary": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "match": { "type": "boolean" },
+                  "riskLevel": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"]
+                  },
+                  "description": { "type": "string" }
+                }
+              }
+            }
           }
         }
       }

@@ -2143,6 +2143,17 @@ function validateApplicationCallback(decrypted, context = {}) {
   const hasBankStatement = docTypes.has('BankStatement') || docTypes.has('BANK_STATEMENT');
   const hasGCash = docTypes.has('GcashTransactionHistory') || docTypes.has('GCashTransactionHistory');
 
+  // ── Multi-doc batch detection for crossCheckFindings gating ───────────────
+  const classifications = new Set(documents.map(d => d.documentClassification).filter(Boolean));
+  const primaryTypes = new Set(
+    documents.filter(d => (d.documentClassification ?? 'PRIMARY') === 'PRIMARY')
+      .map(d => d.documentType).filter(Boolean)
+  );
+  const isMultiDocBatch = documents.length >= 2 && (
+    (classifications.has('PRIMARY') && classifications.has('SUPPORTING')) ||
+    primaryTypes.size >= 2
+  );
+
   // ── Structure validation ──────────────────────────────────────────────────
   if (hasBankStatement) {
     const cf = decrypted.ocrResult?.computedFields;
@@ -2164,9 +2175,6 @@ function validateApplicationCallback(decrypted, context = {}) {
           }
         }
       }
-      if (cf.crossCheckFindings == null) {
-        checks.structureValidation.errors.push('missing ocrResult.computedFields.crossCheckFindings');
-      }
     }
   } else if (hasGCash) {
     const cf = decrypted.ocrResult?.computedFields;
@@ -2182,6 +2190,56 @@ function validateApplicationCallback(decrypted, context = {}) {
       }
     }
   }
+  // ── crossCheckFindings validation (multi-doc batches only) ────────────────
+  const crossCheckMismatches = [];
+  const notes = [];
+  if (isMultiDocBatch) {
+    const cf = decrypted.ocrResult?.computedFields;
+    const ccf = cf?.crossCheckFindings;
+    if (ccf == null) {
+      checks.structureValidation.errors.push('missing ocrResult.computedFields.crossCheckFindings on multi-doc batch');
+    } else if (!Array.isArray(ccf)) {
+      checks.structureValidation.errors.push(`crossCheckFindings must be an array, got ${typeof ccf}`);
+    } else {
+      if (ccf.length === 0) {
+        notes.push('crossCheckFindings is empty on multi-doc batch — verify expected');
+      }
+      const ccfRequiredFields = [
+        ['field', 'string'],
+        ['valuePrimary', 'array'],
+        ['valueSecondary', 'array'],
+        ['match', 'boolean'],
+        ['riskLevel', 'string'],
+        ['description', 'string'],
+      ];
+      for (let i = 0; i < ccf.length; i++) {
+        const finding = ccf[i];
+        for (const [fname, ftype] of ccfRequiredFields) {
+          if (finding[fname] == null) {
+            checks.structureValidation.errors.push(`crossCheckFindings[${i}] missing required field: ${fname}`);
+          } else if (ftype === 'array' && !Array.isArray(finding[fname])) {
+            checks.structureValidation.errors.push(`crossCheckFindings[${i}] invalid type for ${fname}: expected array, got ${typeof finding[fname]}`);
+          } else if (ftype !== 'array' && typeof finding[fname] !== ftype) {
+            checks.structureValidation.errors.push(`crossCheckFindings[${i}] invalid type for ${fname}: expected ${ftype}, got ${typeof finding[fname]}`);
+          }
+        }
+        if (finding.riskLevel != null && !['low', 'medium', 'high'].includes(finding.riskLevel)) {
+          checks.structureValidation.errors.push(`crossCheckFindings[${i}] invalid riskLevel: "${finding.riskLevel}" (expected low|medium|high)`);
+        }
+        // Surface mismatches (report-only — NOT errors)
+        if (finding.match === false) {
+          crossCheckMismatches.push({
+            field: finding.field,
+            riskLevel: finding.riskLevel,
+            description: finding.description,
+            valuePrimary: finding.valuePrimary,
+            valueSecondary: finding.valueSecondary,
+          });
+        }
+      }
+    }
+  }
+
   checks.structureValidation.passed = checks.structureValidation.errors.length === 0;
 
   // ── Key fields matched ────────────────────────────────────────────────────
@@ -2217,15 +2275,11 @@ function validateApplicationCallback(decrypted, context = {}) {
         );
       }
     }
-    const ccf = decrypted.ocrResult.computedFields.crossCheckFindings;
-    if (ccf != null && typeof ccf === 'object' && !Array.isArray(ccf) && Object.keys(ccf).length === 0) {
-      checks.contentValidation.errors.push('computedFields.crossCheckFindings is an empty object');
-    }
   }
   checks.contentValidation.passed = checks.contentValidation.errors.length === 0;
 
   const allErrors = Object.values(checks).flatMap(c => c.errors);
-  return { checks, passed: allErrors.length === 0, allErrors };
+  return { checks, passed: allErrors.length === 0, allErrors, crossCheckMismatches, notes };
 }
 
 /**
@@ -2657,12 +2711,29 @@ async function runBatchTestCase(tc) {
       const validation = validateApplicationCallback(decrypted, { expectedApplicationId: cbAppId });
       report.checks = validation.checks;
       report.mismatchDetails = validation.allErrors;
+      if (validation.crossCheckMismatches?.length > 0) {
+        report.crossCheckMismatches = validation.crossCheckMismatches;
+      }
+      if (validation.notes?.length > 0) {
+        report.notes = validation.notes;
+      }
       if (!validation.passed) {
         allErrors.push(...validation.allErrors.map(e => `app-callback: ${e}`));
         console.log(`    ✗ Application callback FAILED (appId=${decrypted.applicationId}) — ${validation.allErrors.length} error(s)`);
         for (const e of validation.allErrors) console.log(`      • ${e}`);
       } else {
         console.log(`    ✓ Application callback OK (appId=${decrypted.applicationId})`);
+      }
+      // Surface cross-check mismatches as informational (not errors)
+      if (validation.crossCheckMismatches?.length > 0) {
+        console.log(`    ℹ Cross-check mismatches detected (informational):`);
+        for (const m of validation.crossCheckMismatches) {
+          const marker = m.riskLevel === 'high' ? ' ⚠ HIGH RISK' : '';
+          console.log(`      • ${m.field} [${m.riskLevel}]${marker}: ${m.description}`);
+        }
+      }
+      if (validation.notes?.length > 0) {
+        for (const n of validation.notes) console.log(`    ℹ ${n}`);
       }
     }
 
@@ -2748,6 +2819,8 @@ async function runBatchTestCase(tc) {
     };
     if (report.scoreGating) jsonPayload.scoreGating = report.scoreGating;
     if (report.crossValidation) jsonPayload.crossValidation = report.crossValidation;
+    if (report.crossCheckMismatches) jsonPayload.crossCheckMismatches = report.crossCheckMismatches;
+    if (report.notes) jsonPayload.notes = report.notes;
     if (report.type === 'application') {
       const qaSummary = computeApplicationQaSummary(report);
       report.qaSummary  = qaSummary;
